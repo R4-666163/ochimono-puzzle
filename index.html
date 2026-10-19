@@ -361,7 +361,7 @@ const net={room:null,r:null,role:null,code:'',phase:'idle',opp:null,me:null,read
     const o=others.find(p=>p.peer===this.opp);
     if(this.phase==='end'){
       // after a match: both pick もう一回 -> next round; the other leaving (やめる) sends everyone home
-      if(!o){goHome('相手がやめたので、ホームにもどりました');return}
+      if(!o){goHome('');return}
       const s=o.presence,theirs=s.rm===this.round;
       if(this.wantAgain&&theirs){this.round++;this.begin();return}
       const note=document.getElementById('rmNote');if(note)note.textContent=theirs?'相手は「もう一回」を選んでいます':'';
