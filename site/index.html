@@ -102,7 +102,7 @@ canvas{display:block;touch-action:none}
 const W=9,H=15,R=0.866,NCOL=5,CLEAR=6,JUNK=9,JUNK_FALL=0.018;
 const COLORS={1:['#ffb3a8','#ff6f5e','#b8382b'],2:['#fff1b0','#ffc93c','#c78a00'],3:['#bfe6ff','#4fb3ff','#1a62b3'],4:['#c4f5d6','#4fd189','#1a8a4c'],5:['#e6dbff','#a98bff','#6343c4']};
 // build: how much the CPU cares about growing a 技 shape it hasn't finished yet
-const DIFF={easy:{name:'かんたん',delay:520,noise:70,build:0},normal:{name:'ふつう',delay:220,noise:7,build:0.3},hard:{name:'つよい',delay:140,noise:0,build:0.7}};
+const DIFF={easy:{name:'かんたん',delay:520,noise:70,build:0},normal:{name:'ふつう',delay:220,noise:7,build:0.2},hard:{name:'つよい',delay:140,noise:0,build:0.45}};
 const NB=[[-2,0],[2,0],[-1,-1],[1,-1],[-1,1],[1,1]];
 const SPAWN={o:0,dc:8,y:0};
 const rnd=n=>Math.floor(Math.random()*n);
@@ -200,9 +200,6 @@ function findClear(g){
   if(!groups)return null;
   // a 技 wipes every ball of its color off the field
   if(techColors.size)for(let y=0;y<H;y++)for(let dc=0;dc<2*W;dc++){const b=g[y][dc];if(b&&techColors.has(b.c))hit.add(key(dc,y))}
-  // junk next to anything removed breaks too
-  for(const k of [...hit]){const y=Math.floor(k/64),dc=k%64;
-    for(const [ax,ay] of NB){const nx=dc+ax,ny=y+ay;if(valid(nx,ny)&&g[ny][nx]&&g[ny][nx].junk)hit.add(key(nx,ny))}}
   const list=[...hit].map(k=>[k%64,Math.floor(k/64)]);
   return {list,removed:list.length,groups,shapes};
 }
@@ -650,7 +647,7 @@ function showStart(){
     <li>下の<b>わざ</b>(6つの決まった形。まわりに同じ色がくっついていてもOK)で消すと、<b>その色の玉がぜんぶ消え</b>、相手に<b>じゃま玉</b>(白いふち)が降る。それ以外の消し方では降らない</li>
     <li>降ってきたじゃま玉で<b>わざの形ができたとき</b>も、その場で消えて相手に送れる</li>
     <li>じゃま玉は、作ったわざと<b>同じ形の連なり</b>で、<b>2個ずつ同じ色</b>になって降る。連鎖でわざを重ねると、そのぶん増える。相殺はない</li>
-    <li>じゃま玉にも色があり、<b>同じ色の玉とつながって</b>消せる(形にも使える)。隣で玉が消えたときも一緒に消える</li>
+    <li>じゃま玉にも色があり、<b>同じ色の玉とつながって</b>消せる(形にも使える)。となりで玉が消えても、じゃま玉は消えない</li>
     <li>上の×印がふさがったら負け</li>
   </ul>
   <div class="shapes">${ICONS.map((s,i)=>`<figure><canvas data-i="${i}"></canvas><figcaption>${s.label}</figcaption></figure>`).join('')}</div>
