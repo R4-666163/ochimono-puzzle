@@ -202,25 +202,40 @@ function findClear(g){
   return {list,removed:list.length,groups,shapes};
 }
 
-// junk arrives as a chain of the same 技 shape, colored two at a time, and falls as one block
+// junk arrives as a chain of the same 技 shape and falls as one block.
+// ピラミッド/ヘキサゴン: copies of the shape packed together; inside each copy no two touching balls share a colour
 function formation(sh,n){
-  const cells=[],used=new Set(),k=(x,y)=>y*64+x,[ax,ay]=sh.cells[0];
+  const cells=[],used=new Set(),k=(x,y)=>y*64+x,[ax,ay]=sh.cells[0];let u=0;
   for(let y=0;cells.length<n;y++)for(let dc=0;dc<2*W&&cells.length<n;dc++){
     const pts=sh.cells.map(([x,yy])=>[x-ax+dc,yy-ay+y]);
     if(!pts.every(([x,yy])=>x>=0&&x<=2*W-2+(yy&1)&&(x&1)===(yy&1)&&!used.has(k(x,yy))))continue;
-    for(const p of pts.slice(0,n-cells.length)){used.add(k(p[0],p[1]));cells.push(p)}
+    for(const p of pts.slice(0,n-cells.length)){used.add(k(p[0],p[1]));cells.push([p[0],p[1],0,u])}
+    u++;
+  }
+  for(const b of cells){
+    const taken=new Set(cells.filter(o=>o[3]===b[3]&&o[2]&&NB.some(([dx,dy])=>o[0]===b[0]+dx&&o[1]===b[1]+dy)).map(o=>o[2]));
+    const free=[1,2,3,4,5].filter(c=>!taken.has(c));b[2]=free[rnd(free.length)];
   }
   return cells;
 }
+// ストレート (any direction): as in 6ボールパズル, a full row with a half-shifted row on top, colours
+// cycling 黄 紫 赤 青 緑 so each upper ball pairs with the one below-left; the rest of 19 sits on a third row
+const STRAIGHT_ORDER=[2,5,1,3,4];
+function straightBlock(n){
+  const out=[];
+  for(let i=0;i<W&&out.length<n;i++)out.push([2*i+1,3,STRAIGHT_ORDER[i%5]]);
+  for(let i=0;i<W-1&&out.length<n;i++)out.push([2*i+2,2,STRAIGHT_ORDER[i%5]]);
+  for(const d of [5,7,9,11,3,13,1,15])if(out.length<n)out.push([d,1,STRAIGHT_ORDER[((d-1)/2+2)%5]]);
+  return out;
+}
 function dropFormation(g,sh,n){
-  let cells=formation(sh,n);const top=-(Math.max(...cells.map(c=>c[1]))+2)&~1;
+  let cells=sh.name==='ストレート'?straightBlock(n):formation(sh,n);const top=-(Math.max(...cells.map(c=>c[1]))+2)&~1;
   // slide the whole chain sideways to a random spot that still fits the well
   const room=2*W-2-Math.max(...cells.map(c=>c[0]-(c[1]&1))),sx=2*rnd(Math.floor(room/2)+1);
-  cells=cells.map(([x,y])=>[x+sx,y]);
+  cells=cells.map(([x,y,c])=>[x+sx,y,c]);
   const ok=o=>cells.every(([x,y])=>y+o<0||(y+o<H&&!g[y+o][x]));
   let oy=top;while(ok(oy+2))oy+=2;
-  let c=0;cells.forEach(([x,y],i)=>{if(i%2===0)c=1+rnd(NCOL);
-    if(y+oy>=0)g[y+oy][x]={c,junk:true,pid:PID++,vx:x,vy:y+top,ly:y+oy}});
+  cells.forEach(([x,y,c])=>{if(y+oy>=0)g[y+oy][x]={c,junk:true,pid:PID++,vx:x,vy:y+top,ly:y+oy}});
 }
 
 class Field{
