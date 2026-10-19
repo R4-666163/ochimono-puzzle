@@ -97,9 +97,9 @@ canvas{display:block;touch-action:none}
 <script>
 (()=>{
 // Honeycomb well in "doubled" coordinates: a ball at row y sits at column dc, where dc and y share parity.
-const W=8,H=14,R=0.866,NCOL=5,CLEAR=6,JUNK=9,JUNK_FALL=0.018;
+const W=9,H=15,R=0.866,NCOL=5,CLEAR=6,JUNK=9,JUNK_FALL=0.018;
 const COLORS={1:['#ffb3a8','#ff6f5e','#b8382b'],2:['#fff1b0','#ffc93c','#c78a00'],3:['#bfe6ff','#4fb3ff','#1a62b3'],4:['#c4f5d6','#4fd189','#1a8a4c'],5:['#e6dbff','#a98bff','#6343c4']};
-const DIFF={easy:{name:'かんたん',delay:520,noise:70},normal:{name:'ふつう',delay:300,noise:18},hard:{name:'つよい',delay:140,noise:0}};
+const DIFF={easy:{name:'かんたん',delay:520,noise:70},normal:{name:'ふつう',delay:220,noise:7},hard:{name:'つよい',delay:140,noise:0}};
 const NB=[[-2,0],[2,0],[-1,-1],[1,-1],[-1,1],[1,1]];
 const SPAWN={o:0,dc:8,y:0};
 const rnd=n=>Math.floor(Math.random()*n);
@@ -224,10 +224,14 @@ function formation(sh,n){
 // cycling 黄 紫 赤 青 緑 so each upper ball pairs with the one below-left; the rest of 19 sits on a third row
 const STRAIGHT_ORDER=[2,5,1,3,4];
 function straightBlock(n){
-  const out=[];
-  for(let i=0;i<W&&out.length<n;i++)out.push([2*i+1,3,STRAIGHT_ORDER[i%5]]);
-  for(let i=0;i<W-1&&out.length<n;i++)out.push([2*i+2,2,STRAIGHT_ORDER[i%5]]);
-  for(const d of [5,7,9,11,3,13,1,15])if(out.length<n)out.push([d,1,STRAIGHT_ORDER[((d-1)/2+2)%5]]);
+  // build it on rows with the same parity as the well's floor, so the bottom row lands flat on it
+  const p=(H-1)&1,by=2+p,out=[];
+  for(let i=0;i<W&&out.length<n;i++)out.push([2*i+p,by,STRAIGHT_ORDER[i%5]]);
+  for(let i=0;i<W-1&&out.length<n;i++)out.push([2*i+p+1,by-1,STRAIGHT_ORDER[i%5]]);
+  // what's left sits centred on a third row, never the colour of either ball under it
+  const third=[];for(let d=p+2;d<=2*W-4+p;d+=2)third.push(d);
+  third.sort((a,b)=>Math.abs(a-(W-1))-Math.abs(b-(W-1))||a-b);
+  for(const d of third)if(out.length<n)out.push([d,by-2,STRAIGHT_ORDER[((d-p)/2+2)%5]]);
   return out;
 }
 function dropFormation(g,sh,n){
@@ -339,7 +343,7 @@ function evaluate(g0,p){
   for(let y=0;y<H;y++)for(let dc=0;dc<2*W;dc++){const b=g[y][dc];if(!b)continue;top=Math.min(top,y);
     for(const [ax,ay] of [[2,0],[1,1],[-1,1]]){const nx=dc+ax,ny=y+ay;if(valid(nx,ny)&&g[ny][nx]&&g[ny][nx].c===b.c)adj++}}
   v+=adj*5-(H-top)*3;
-  for(let y=0;y<4;y++)for(let dc=5;dc<=11;dc++)if(valid(dc,y)&&g[y][dc])v-=300;
+  for(let y=0;y<4;y++)for(let dc=SPAWN.dc-3;dc<=SPAWN.dc+3;dc++)if(valid(dc,y)&&g[y][dc])v-=300;
   return v;
 }
 
