@@ -148,15 +148,15 @@ function physics(g){
   }
   splitPids(g);
 }
-// only these exact 6-ball shapes send junk to the other side
+// only these exact 6-ball shapes (技) send junk; atk = balls sent, as in 6ボールパズル
 const LINE=d=>Array.from({length:6},(_,i)=>[d[0]*i,d[1]*i]);
 const SHAPES=[
-  {name:'三角形',atk:4,cells:[[0,0],[-1,1],[1,1],[-2,2],[0,2],[2,2]]},
-  {name:'逆三角形',atk:4,cells:[[-2,0],[0,0],[2,0],[-1,1],[1,1],[0,2]]},
-  {name:'一直線',atk:4,cells:LINE([2,0])},
-  {name:'一直線',atk:4,cells:LINE([1,1])},
-  {name:'一直線',atk:4,cells:LINE([-1,1])},
-  {name:'ヘキサゴン',atk:6,center:true,cells:NB.map(([x,y])=>[x,y])},
+  {name:'ピラミッド',atk:24,cells:[[0,0],[-1,1],[1,1],[-2,2],[0,2],[2,2]]},
+  {name:'ピラミッド',atk:24,cells:[[-2,0],[0,0],[2,0],[-1,1],[1,1],[0,2]]},
+  {name:'ストレート',atk:19,cells:LINE([2,0])},
+  {name:'ストレート',atk:19,cells:LINE([1,1])},
+  {name:'ストレート',atk:19,cells:LINE([-1,1])},
+  {name:'ヘキサゴン',atk:36,center:true,cells:NB.map(([x,y])=>[x,y])},
 ].map(s=>({...s,cells:s.cells.sort((a,b)=>a[1]-b[1]||a[0]-b[0])}));
 function shapeOf(g,grp,c){
   if(grp.length!==6)return null;
@@ -170,7 +170,7 @@ function shapeOf(g,grp,c){
   return null;
 }
 function findClear(g){
-  const seen=new Set(),hit=new Set(),shapes=[];let groups=0;
+  const seen=new Set(),hit=new Set(),shapes=[],techColors=new Set();let groups=0;
   const key=(dc,y)=>y*64+dc;
   for(let y=0;y<H;y++)for(let dc=0;dc<2*W;dc++){
     const b=g[y][dc];if(!b||seen.has(key(dc,y)))continue;
@@ -178,12 +178,11 @@ function findClear(g){
     while(st.length){const [x,yy]=st.pop();grp.push([x,yy]);
       for(const [ax,ay] of NB){const nx=x+ax,ny=yy+ay;
         if(valid(nx,ny)&&g[ny][nx]&&g[ny][nx].c===b.c&&!seen.has(key(nx,ny))){seen.add(key(nx,ny));st.push([nx,ny])}}}
-    if(grp.length>=CLEAR){groups++;grp.forEach(([x,yy])=>hit.add(key(x,yy)));const sh=shapeOf(g,grp,b.c);if(sh)shapes.push(sh)}
+    if(grp.length>=CLEAR){groups++;grp.forEach(([x,yy])=>hit.add(key(x,yy)));const sh=shapeOf(g,grp,b.c);if(sh){shapes.push(sh);techColors.add(b.c)}}
   }
   if(!groups)return null;
-  // whole trios go with them, whatever their colors
-  const pids=new Set();for(const k of hit){const y=Math.floor(k/64),dc=k%64;pids.add(g[y][dc].pid)}
-  for(let y=0;y<H;y++)for(let dc=0;dc<2*W;dc++){const b=g[y][dc];if(b&&!b.junk&&pids.has(b.pid))hit.add(key(dc,y))}
+  // a 技 wipes every ball of its color off the field
+  if(techColors.size)for(let y=0;y<H;y++)for(let dc=0;dc<2*W;dc++){const b=g[y][dc];if(b&&techColors.has(b.c))hit.add(key(dc,y))}
   // junk next to anything removed breaks too
   for(const k of [...hit]){const y=Math.floor(k/64),dc=k%64;
     for(const [ax,ay] of NB){const nx=dc+ax,ny=y+ay;if(valid(nx,ny)&&g[ny][nx]&&g[ny][nx].junk)hit.add(key(nx,ny))}}
@@ -191,9 +190,30 @@ function findClear(g){
   return {list,removed:list.length,groups,shapes};
 }
 
+// junk arrives as a chain of the same 技 shape, colored two at a time, and falls as one block
+function formation(sh,n){
+  const cells=[],used=new Set(),k=(x,y)=>y*64+x,[ax,ay]=sh.cells[0];
+  for(let y=0;cells.length<n;y++)for(let dc=0;dc<2*W&&cells.length<n;dc++){
+    const pts=sh.cells.map(([x,yy])=>[x-ax+dc,yy-ay+y]);
+    if(!pts.every(([x,yy])=>x>=0&&x<=2*W-2+(yy&1)&&(x&1)===(yy&1)&&!used.has(k(x,yy))))continue;
+    for(const p of pts.slice(0,n-cells.length)){used.add(k(p[0],p[1]));cells.push(p)}
+  }
+  return cells;
+}
+function dropFormation(g,sh,n){
+  let cells=formation(sh,n);const top=-(Math.max(...cells.map(c=>c[1]))+2)&~1;
+  // slide the whole chain sideways to a random spot that still fits the well
+  const room=2*W-2-Math.max(...cells.map(c=>c[0]-(c[1]&1))),sx=2*rnd(Math.floor(room/2)+1);
+  cells=cells.map(([x,y])=>[x+sx,y]);
+  const ok=o=>cells.every(([x,y])=>y+o<0||(y+o<H&&!g[y+o][x]));
+  let oy=top;while(ok(oy+2))oy+=2;
+  let c=0;cells.forEach(([x,y],i)=>{if(i%2===0)c=1+rnd(NCOL);
+    if(y+oy>=0)g[y+oy][x]={c,junk:true,pid:PID++,vx:x,vy:y+top}});
+}
+
 class Field{
   constructor(cpu){this.cpu=cpu;this.reset()}
-  reset(){Object.assign(this,{g:mkG(),piece:null,next:randPiece(),state:'spawn',t:0,score:0,chain:0,maxChain:0,pending:0,attack:0,fallT:0,lockT:0,flash:null,popups:[],soft:false,plan:null,cpuT:0,gDone:false})}
+  reset(){Object.assign(this,{g:mkG(),piece:null,next:randPiece(),state:'spawn',t:0,score:0,chain:0,maxChain:0,pending:0,queue:[],sent:[],fallT:0,lockT:0,flash:null,popups:[],soft:false,plan:null,cpuT:0,gDone:false})}
   spawn(){
     if(this.pending>0&&!this.gDone){this.dropJunk();this.gDone=true;this.state='gwait';return}
     this.gDone=false;
@@ -203,11 +223,8 @@ class Field{
     if(this.cpu)this.makePlan();
   }
   dropJunk(){
-    const n=Math.min(this.pending,8);this.pending-=n;
-    const spots=[];for(let y=0;y<3;y++)for(let dc=0;dc<2*W;dc++)if(valid(dc,y)&&!this.g[y][dc])spots.push([dc,y]);
-    spots.sort(()=>Math.random()-.5);
-    for(const [dc,y] of spots.slice(0,n))this.g[y][dc]={c:1+rnd(NCOL),junk:true,pid:PID++,vx:dc,vy:y-4};
-    physics(this.g);
+    for(const a of this.queue)dropFormation(this.g,a.sh,a.n);
+    this.queue=[];this.pending=0;physics(this.g);
   }
   animate(dt){
     const step=dt*0.012;let still=true;
@@ -222,7 +239,7 @@ class Field{
     for(const [kx,ky] of [[0,0],[-2,0],[2,0],[0,2],[0,-2]]){const p={...r,dc:r.dc+kx,y:r.y+ky};if(fits(this.g,p)){this.piece=p;this.lockT=0;return}}}
   dropPos(){return settle(this.g,this.piece)}
   hardDrop(){if(this.state!=='play')return;const p=this.dropPos();this.score+=(p.y-this.piece.y);this.lock()}
-  lock(){const from=this.piece,p=settle(this.g,from);place(this.g,p,PID++,from);this.piece=null;physics(this.g);this.chain=0;this.attack=0;this.state='settle'}
+  lock(){const from=this.piece,p=settle(this.g,from);place(this.g,p,PID++,from);this.piece=null;physics(this.g);this.chain=0;this.sent=[];this.state='settle'}
   update(dt){
     const still=this.animate(dt);
     this.popups=this.popups.filter(p=>(p.t+=dt)<1100);
@@ -240,7 +257,7 @@ class Field{
         if(still){const r=findClear(this.g);
           if(r){this.chain++;this.maxChain=Math.max(this.maxChain,this.chain);this.flash=r.list;this.t=0;this.state='flash';
             this.score+=r.removed*10*this.chain+(r.groups-1)*50;
-            for(const sh of r.shapes)this.attack+=sh.atk+(this.chain-1)*2;
+            for(const sh of r.shapes)this.sent.push({sh,n:sh.atk});
             this.popups.push({txt:this.chain>=2?this.chain+'れんさ!':r.removed+'こ消し',t:0,small:this.chain<2});
             if(r.shapes.length)this.popups.push({txt:[...new Set(r.shapes.map(s=>s.name))].join('・')+'!',t:0,small:true,hi:true});
           }else this.endResolve()}
@@ -248,10 +265,11 @@ class Field{
       case 'flash':this.t+=dt;if(this.t>380){for(const [dc,y] of this.flash)this.g[y][dc]=null;this.flash=null;physics(this.g);this.state='settle'}break;
     }
   }
+  // no offsetting: everything made this turn goes straight to the other side
   endResolve(){
-    let a=this.attack;
-    if(a>0){const c=Math.min(a,this.pending);this.pending-=c;a-=c;if(a>0){game.other(this).pending+=a;this.popups.push({txt:'じゃま玉 '+a+' →',t:0,small:true,low:true})}}
-    this.attack=0;this.chain=0;this.state='spawn';
+    const o=game.other(this),a=this.sent.reduce((t,x)=>t+x.n,0);
+    if(a>0){o.queue.push(...this.sent);o.pending+=a;this.popups.push({txt:'じゃま玉 '+a+' →',t:0,small:true,low:true})}
+    this.sent=[];this.chain=0;this.state='spawn';
   }
   // ---- CPU ----
   makePlan(){
@@ -281,8 +299,8 @@ function evaluate(g0,p){
   place(g,p,-1);physics(g);
   let chain=0,removed=0,r;
   let atk=0;
-  while((r=findClear(g))){chain++;removed+=r.removed;for(const sh of r.shapes)atk+=sh.atk+(chain-1)*2;for(const [dc,y] of r.list)g[y][dc]=null;physics(g)}
-  let v=removed*8+chain*chain*45+atk*70,adj=0,top=H;
+  while((r=findClear(g))){chain++;removed+=r.removed;for(const sh of r.shapes)atk+=sh.atk;for(const [dc,y] of r.list)g[y][dc]=null;physics(g)}
+  let v=removed*8+chain*chain*45+atk*12,adj=0,top=H;
   for(let y=0;y<H;y++)for(let dc=0;dc<2*W;dc++){const b=g[y][dc];if(!b)continue;top=Math.min(top,y);
     for(const [ax,ay] of [[2,0],[1,1],[-1,1]]){const nx=dc+ax,ny=y+ay;if(valid(nx,ny)&&g[ny][nx]&&g[ny][nx].c===b.c)adj++}}
   v+=adj*5-(H-top)*3;
@@ -464,8 +482,8 @@ function showStart(){
   <ul>
     <li>支えのない玉は、すき間へ<b>転がり落ちる</b></li>
     <li>同じ色を<b>6つ以上</b>つなげると消える</li>
-    <li>そのとき、消える玉と<b>線でつながった組の玉</b>も、色に関係なく一緒に消える</li>
-    <li>下の<b>決まった形</b>(ちょうど6つ)で消したときだけ、相手に<b>じゃま玉</b>(白いふち)が降る</li>
+    <li>下の<b>わざ</b>(ちょうど6つの決まった形)で消すと、<b>その色の玉がぜんぶ消え</b>、相手に<b>じゃま玉</b>(白いふち)が降る。それ以外の消し方では降らない</li>
+    <li>じゃま玉は、作ったわざと<b>同じ形の連なり</b>で、<b>2個ずつ同じ色</b>になって降る。連鎖でわざを重ねると、そのぶん増える。相殺はない</li>
     <li>じゃま玉にも色があり、<b>同じ色の玉とつながって</b>消せる(形にも使える)。隣で玉が消えたときも一緒に消える</li>
     <li>上の×印がふさがったら負け</li>
   </ul>
@@ -475,10 +493,10 @@ function showStart(){
   bindChoices();drawIcons();overlay.hidden=false;
 }
 const ICONS=[
-  {label:'三角形',cells:SHAPES[0].cells},
-  {label:'逆三角形',cells:SHAPES[1].cells},
-  {label:'一直線(ななめも)',cells:SHAPES[3].cells},
-  {label:'ヘキサゴン(真ん中は別の色)',cells:SHAPES[5].cells,center:true},
+  {label:'ピラミッド<br>24個',cells:SHAPES[0].cells},
+  {label:'逆ピラミッド<br>24個',cells:SHAPES[1].cells},
+  {label:'ストレート(ななめも)<br>19個',cells:SHAPES[3].cells},
+  {label:'ヘキサゴン(真ん中は別の色)<br>36個',cells:SHAPES[5].cells,center:true},
 ];
 function drawIcons(){
   card.querySelectorAll('.shapes canvas').forEach(cv=>{
