@@ -1,0 +1,9 @@
+// Cloudflare の公開設定
+{
+  "name": "ochimono-puzzle",
+  "compatibility_date": "2026-10-01",
+  // site/ フォルダの中身（ゲーム本体）だけを公開する
+  "assets": {
+    "directory": "./site"
+  }
+}
