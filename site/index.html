@@ -165,7 +165,8 @@ const SHAPES=[
   {name:'ストレート',atk:19,cells:LINE([2,0])},
   {name:'ストレート',atk:19,cells:LINE([1,1])},
   {name:'ストレート',atk:19,cells:LINE([-1,1])},
-  {name:'ヘキサゴン',atk:36,center:true,cells:NB.map(([x,y])=>[x,y])},
+  // the ring alone: its centre may be empty, another colour, or the same colour
+  {name:'ヘキサゴン',atk:36,cells:NB.map(([x,y])=>[x,y])},
 ].map(s=>({...s,cells:s.cells.sort((a,b)=>a[1]-b[1]||a[0]-b[0])}));
 // a same-color group counts as a 技 if the shape sits anywhere inside it, extra balls or not;
 // a group holding several shapes counts once, as the strongest
@@ -176,7 +177,6 @@ function shapeOf(g,grp,c){
     if(best&&sh.atk<=best.atk)continue;
     const ox=gx-sh.cells[0][0],oy=gy-sh.cells[0][1];
     if(!sh.cells.every(([x,y])=>set.has((y+oy)*64+x+ox)))continue;
-    if(sh.center){const m=valid(ox,oy)&&g[oy][ox];if(!m||m.c===c)continue}
     best=sh;
   }
   return best;
@@ -335,7 +335,7 @@ class Field{
   }
 }
 // how far along the best unfinished 技 of each colour is: a shape spot holding 3-5 balls of one
-// colour with the rest still empty (a ヘキサゴン's centre must not be that colour)
+// colour with the rest still empty
 const BUILD_SCORE=[0,0,0,4,18,50];
 function shapePotential(g){
   const best={};
@@ -345,7 +345,6 @@ function shapePotential(g){
       for(const [x,y] of sh.cells){const X=x+ox,Y=y+oy;if(!valid(X,Y)){ok=false;break}
         const b=g[Y][X];if(b){if(col&&b.c!==col){ok=false;break}col=b.c;k++}}
       if(!ok||k<3||k>5)continue;
-      if(sh.center){const m=valid(ox,oy)&&g[oy][ox];if(m&&m.c===col)continue}
       const s=BUILD_SCORE[k];if(!(best[col]>=s))best[col]=s;
     }}
   let t=0;for(const k in best)t+=best[k];return t;
@@ -662,7 +661,7 @@ const ICONS=[
   {label:'ピラミッド<br>24個',cells:SHAPES[0].cells},
   {label:'逆ピラミッド<br>24個',cells:SHAPES[1].cells},
   {label:'ストレート(ななめも)<br>19個',cells:SHAPES[3].cells},
-  {label:'ヘキサゴン(真ん中は別の色)<br>36個',cells:SHAPES[5].cells,center:true},
+  {label:'ヘキサゴン(真ん中は何色でも・空でもOK)<br>36個',cells:SHAPES[5].cells},
 ];
 function drawIcons(){
   card.querySelectorAll('.shapes canvas').forEach(cv=>{
