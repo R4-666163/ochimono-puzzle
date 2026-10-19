@@ -56,6 +56,12 @@ canvas{display:block;touch-action:none}
 .shapes{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;background:var(--glass);border-radius:14px;padding:8px 4px}
 .shapes figure{margin:0;display:flex;flex-direction:column;align-items:center;gap:4px}
 .shapes figcaption{color:#fff;font-size:.6rem;font-weight:800;text-align:center;line-height:1.3}
+.online{display:flex;flex-direction:column;gap:8px}
+.choices.two{grid-template-columns:1fr 1fr}
+.code{font-family:var(--display);font-size:2.6rem;letter-spacing:.12em;text-align:center;color:var(--coral)}
+.codein{font-family:var(--display);font-size:1.8rem;letter-spacing:.3em;text-align:center;padding:10px;border:2px solid var(--ink);border-radius:14px;width:100%;box-sizing:border-box;background:#fff;color:var(--ink);-webkit-user-select:text;user-select:text}
+.err{color:#c0392b;font-weight:800;font-size:.8rem;min-height:1.1em;margin:0}
+.card h2.go{font-size:2.2rem;text-align:center;padding:18px 0}
 .choices{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 .choice{border:2px solid var(--ink);background:transparent;color:var(--ink);border-radius:14px;padding:12px 4px;font-family:var(--body);font-weight:800;font-size:.95rem;cursor:pointer}
 .choice.main{background:var(--ink);color:#fff}
@@ -74,7 +80,7 @@ canvas{display:block;touch-action:none}
     <aside id="side">
       <div class="lbl">NEXT</div>
       <div id="nwrap"><canvas id="nc"></canvas></div>
-      <div class="lbl">CPU</div>
+      <div class="lbl" id="sideLbl">CPU</div>
       <div id="cwrap"><canvas id="cc" aria-label="CPUのフィールド"></canvas></div>
     </aside>
   </main>
@@ -270,7 +276,7 @@ class Field{
   // no offsetting: everything made this turn goes straight to the other side
   endResolve(){
     const o=game.other(this),a=this.sent.reduce((t,x)=>t+x.n,0);
-    if(a>0){o.queue.push(...this.sent);o.pending+=a;this.popups.push({txt:'じゃま玉 '+a+' →',t:0,small:true,low:true})}
+    if(a>0){if(game.mode==='online')net.attack(this.sent);else{o.queue.push(...this.sent);o.pending+=a}this.popups.push({txt:'じゃま玉 '+a+' →',t:0,small:true,low:true})}
     this.sent=[];this.chain=0;this.state='spawn';
   }
   // ---- CPU ----
@@ -311,11 +317,82 @@ function evaluate(g0,p){
 }
 
 // ---- Game ----
-const game={diff:'normal',speed:900,elapsed:0,running:false,paused:false,
-  p:new Field(false),c:new Field(true),
+const cpuField=new Field(true);
+const game={diff:'normal',mode:'cpu',speed:900,elapsed:0,running:false,paused:false,
+  p:new Field(false),c:cpuField,
   other(f){return f===this.p?this.c:this.p},
-  start(diff){this.diff=diff;this.p.reset();this.c.reset();this.elapsed=0;this.running=true;this.paused=false;hideOverlay()},
-  onDead(f){this.running=false;setTimeout(()=>showEnd(f===this.c),600)}
+  start(diff){net.leave();this.mode='cpu';this.c=cpuField;setSideLabel();this.diff=diff;this.p.reset();this.c.reset();this.elapsed=0;this.running=true;this.paused=false;hideOverlay()},
+  startOnline(){this.mode='online';this.c=net.view;setSideLabel();this.p.reset();this.elapsed=0;this.running=true;this.paused=false;hideOverlay()},
+  onDead(f){this.running=false;if(this.mode==='online'){net.phase='end';net.send();setTimeout(()=>showEnd(false),600)}else setTimeout(()=>showEnd(f===this.c),600)}
+};
+
+// ---- Online: a 6-digit code names a room; each side runs its own well and shares it through room presence ----
+const BCH='0123456789abcde'; // 0 empty, 1-5 ball, a-e junk ball of that color
+const net={room:null,r:null,role:null,code:'',phase:'idle',opp:null,me:null,ready:false,seq:0,log:[],seen:0,timer:null,unsub:null,lastB:'',
+  view:{g:mkG(),piece:null,state:'play',pending:0,popups:[],flash:null,t:0,fallT:0,soft:false},
+  async getRoom(){if(!this.room&&window.claude&&typeof claude.use==='function')this.room=await claude.use('room').catch(()=>null);return this.room},
+  others(){return this.r?this.r.peers().filter(p=>!p.sameTab&&p.presence&&p.presence.app==='bdt'):[]},
+  async open(code,role){
+    const room=await this.getRoom();if(!room)throw new Error('noroom');
+    this.leave();
+    this.r=await room.join('bdt-'+code);
+    Object.assign(this,{code,role,phase:'lobby',opp:null,ready:false,seq:0,log:[],seen:0,lastB:''});
+    this.unsub=this.r.onPeers(()=>this.tick());
+    await this.r.presence({app:'bdt',role,st:'wait'});
+  },
+  leave(){clearInterval(this.timer);this.timer=null;if(this.unsub)this.unsub();this.unsub=null;
+    if(this.r)this.r.leave().catch(()=>{});this.r=null;this.phase='idle';this.opp=null},
+  tick(){
+    if(!this.r)return;
+    const others=this.others();this.me=(this.r.peers().find(p=>p.sameTab)||{}).peer;
+    if(this.phase==='lobby'){
+      if(this.role==='host'){
+        const g=others.find(p=>p.presence.role==='guest'&&p.presence.st==='ready');
+        if(g){this.opp=g.peer;this.r.presence({st:'go',vs:g.peer});this.begin()}
+      }else{
+        const h=others.find(p=>p.presence.role==='host');if(!h)return;
+        const vs=h.presence.vs;
+        if(vs&&vs!==this.me){this.leave();showJoin('この部屋はもう対戦中です')}
+        else if(vs===this.me&&h.presence.st!=='wait'){this.opp=h.peer;this.begin()}
+        else if(h.presence.st==='wait'&&!this.ready){this.ready=true;this.r.presence({st:'ready'})}
+      }
+      return;
+    }
+    if(this.phase!=='play')return;
+    const o=others.find(p=>p.peer===this.opp);
+    if(!o){if(game.running){game.running=false;this.phase='end';showEnd(true,'left')}return}
+    this.apply(o.presence);
+  },
+  begin(){
+    this.phase='play';this.view.g=mkG();this.view.piece=null;this.view.state='play';this.view.pending=0;this.lastB='';
+    game.running=false;game.p.reset(); // never let a finished match's board (or its "dead" flag) reach the new opponent
+    card.innerHTML=`<h2 class="go"><span>ゲームスタート!</span></h2>`;overlay.hidden=false;
+    setTimeout(()=>{if(this.phase==='play')game.startOnline()},1200);
+    clearInterval(this.timer);this.timer=setInterval(()=>this.send(),100);
+  },
+  // what the other side sees: my board, falling trio, incoming junk count, and the 技 I've sent
+  send(){
+    if(!this.r)return;const p=game.p;let b='';
+    for(let y=0;y<H;y++)for(let dc=0;dc<2*W;dc++)if(valid(dc,y)){const x=p.g[y][dc];b+=x?BCH[x.c+(x.junk?9:0)]:'0'}
+    const pc=p.piece&&p.state==='play'?[p.piece.o,p.piece.dc,p.piece.y,...p.piece.c]:null;
+    this.r.presence({st:this.phase,b,pc,pd:p.pending,dead:p.state==='dead',atk:{s:this.seq,l:this.log}}).catch(()=>{});
+  },
+  attack(sent){for(const {sh} of sent){this.log.push([++this.seq,SHAPES.indexOf(sh)]);if(this.log.length>12)this.log.shift()}this.send()},
+  // the opponent's presence is untrusted: read only what parses, never trust counts it claims
+  apply(s){
+    const v=this.view;
+    if(typeof s.b==='string'&&s.b!==this.lastB){this.lastB=s.b;const g=mkG();let i=0;
+      for(let y=0;y<H;y++)for(let dc=0;dc<2*W;dc++)if(valid(dc,y)){const k=BCH.indexOf(s.b[i++]);
+        if(k>0)g[y][dc]={c:k>9?k-9:k,junk:k>9,pid:PID++,vx:dc,vy:y}}
+      v.g=g}
+    const pc=s.pc;v.piece=Array.isArray(pc)&&pc.length===6&&pc.every(Number.isInteger)&&pc.slice(3).every(c=>c>=1&&c<=NCOL)?{o:pc[0]?1:0,dc:pc[1],y:pc[2],c:pc.slice(3)}:null;
+    if(v.piece&&!pcells(v.piece).every(([dc,y])=>valid(dc,y)))v.piece=null;
+    v.pending=Number.isInteger(s.pd)?Math.max(0,Math.min(999,s.pd)):0;
+    if(s.atk&&Array.isArray(s.atk.l))for(const e of s.atk.l){
+      if(!Array.isArray(e)||!Number.isInteger(e[0])||e[0]<=this.seen||!SHAPES[e[1]])continue;
+      this.seen=e[0];const sh=SHAPES[e[1]];game.p.queue.push({sh,n:sh.atk});game.p.pending+=sh.atk}
+    if(s.dead===true){v.state='dead';if(game.running){game.running=false;this.phase='end';this.send();setTimeout(()=>showEnd(true),600)}}
+  }
 };
 
 // ---- Rendering ----
@@ -422,7 +499,7 @@ function frame(now){
   const dt=Math.min(50,now-last);last=now;
   if(game.running&&!game.paused){
     game.elapsed+=dt;game.speed=Math.max(220,900-game.elapsed/1000*6);
-    game.p.update(dt);if(game.running)game.c.update(dt);
+    game.p.update(dt);if(game.running&&game.mode==='cpu')game.c.update(dt);
   }
   drawField(pc,game.p,sizes.p,true,now);drawField(cc,game.c,sizes.c,false,now);drawNext();
   $score.textContent=game.p.score.toLocaleString();$maxc.textContent=game.p.maxChain;
@@ -489,8 +566,9 @@ function showStart(){
   </ul>
   <div class="shapes">${ICONS.map((s,i)=>`<figure><canvas data-i="${i}"></canvas><figcaption>${s.label}</figcaption></figure>`).join('')}</div>
   <p style="font-size:.78rem;opacity:.8">操作:ボタン、またはフィールドを<b>タップで回転</b>・<b>左右になぞって移動</b>・<b>下にはらって落とす</b></p>
-  <p style="font-weight:800">CPUの強さを選んでスタート</p>${diffButtons()}`;
-  bindChoices();drawIcons();overlay.hidden=false;
+  <p style="font-weight:800">CPUの強さを選んでスタート</p>${diffButtons()}
+  <p style="font-weight:800">ともだちと対戦</p>${onlineMenu()}`;
+  bindChoices();bindOnline();drawIcons();overlay.hidden=false;
 }
 const ICONS=[
   {label:'ピラミッド<br>24個',cells:SHAPES[0].cells},
@@ -509,14 +587,67 @@ function drawIcons(){
     for(const [x,y,c] of pts)ball(ctx,ox+(x/2-x0+.5)*cell,oy+(y*R-y0+.5)*cell,cell*.46,c);
   });
 }
-function showEnd(win){
-  card.innerHTML=`<h2>${win?'<span>かち!</span>':'まけ…'}</h2>
-  <p>スコア <b>${game.p.score.toLocaleString()}</b> ・ 最大 <b>${game.p.maxChain}</b> れんさ</p>
-  <p style="font-weight:800">もう一回(強さを選ぶ)</p>${diffButtons()}`;
-  bindChoices();overlay.hidden=false;
+function showEnd(win,why){
+  const head=`<h2>${win?'<span>かち!</span>':'まけ…'}</h2>${why==='left'?'<p>相手が部屋を出ました</p>':''}
+  <p>スコア <b>${game.p.score.toLocaleString()}</b> ・ 最大 <b>${game.p.maxChain}</b> れんさ</p>`;
+  if(game.mode==='online'){
+    card.innerHTML=head+`<button class="choice main" id="toTitle">タイトルへ</button>`;
+    document.getElementById('toTitle').onclick=()=>{net.leave();game.mode='cpu';game.c=cpuField;setSideLabel();showStart()};
+  }else{card.innerHTML=head+`<p style="font-weight:800">もう一回(強さを選ぶ)</p>${diffButtons()}`;bindChoices()}
+  overlay.hidden=false;
+}
+function setSideLabel(){document.getElementById('sideLbl').textContent=game.mode==='online'?'あいて':'CPU';document.getElementById('pauseBtn').style.visibility=game.mode==='online'?'hidden':''}
+// ---- Online menu ----
+function onlineMenu(){return `<div class="online"><button class="choice" id="onBtn">オンライン</button>
+  <div class="choices two" id="onMenu" hidden><button class="choice" id="hostBtn">部屋を立てる</button><button class="choice" id="joinBtn">部屋に入る</button></div>
+  <p class="err" id="onMsg"></p></div>`}
+function bindOnline(){
+  const m=document.getElementById('onMenu'),msg=document.getElementById('onMsg');
+  document.getElementById('onBtn').onclick=async()=>{
+    if(!(await net.getRoom())){msg.textContent='オンライン対戦は claude.ai で開いたときだけ遊べます';return}
+    m.hidden=false;msg.textContent='';
+  };
+  document.getElementById('hostBtn').onclick=hostRoom;
+  document.getElementById('joinBtn').onclick=()=>showJoin('');
+}
+async function hostRoom(){
+  card.innerHTML=`<h2>部屋を立てています…</h2>`;overlay.hidden=false;
+  try{
+    let code;
+    for(let i=0;i<3;i++){ // a code someone is already hosting is re-rolled
+      code=String(100000+rnd(900000));await net.open(code,'host');
+      await new Promise(r=>setTimeout(r,1200));
+      if(!net.others().some(p=>p.presence.role==='host'))break;
+    }
+    card.innerHTML=`<h2>部屋を立てました</h2><p>相手にこのコードを伝えてください</p>
+      <div class="code">${code.slice(0,3)} ${code.slice(3)}</div>
+      <p style="font-size:.78rem;opacity:.8">相手がこのコードを入力すると、ゲームが始まります</p>
+      <button class="choice" id="cancel">やめる</button>`;
+    document.getElementById('cancel').onclick=()=>{net.leave();showStart()};
+    net.tick();
+  }catch(e){net.leave();showStart();document.getElementById('onMsg').textContent='部屋を立てられませんでした。少し待ってもう一度どうぞ'}
+}
+function showJoin(err){
+  card.innerHTML=`<h2>部屋に入る</h2><p>6桁のコードを入力してください</p>
+    <input id="codeIn" class="codein" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="off" aria-label="6桁のコード">
+    <p class="err" id="joinMsg"></p>
+    <div class="choices two"><button class="choice" id="back">もどる</button><button class="choice main" id="go">入る</button></div>`;
+  overlay.hidden=false;
+  const inp=document.getElementById('codeIn'),msg=document.getElementById('joinMsg');msg.textContent=err||'';
+  inp.addEventListener('input',()=>{inp.value=inp.value.replace(/\D/g,'').slice(0,6)});
+  inp.addEventListener('keydown',e=>{e.stopPropagation();if(e.key==='Enter')go()});
+  document.getElementById('back').onclick=()=>{net.leave();showStart()};
+  document.getElementById('go').onclick=go;
+  async function go(){
+    const code=inp.value;if(!/^\d{6}$/.test(code)){msg.textContent='6桁の数字を入れてください';return}
+    msg.textContent='さがしています…';
+    try{await net.open(code,'guest');net.tick()}catch(e){msg.textContent='つながりませんでした。もう一度どうぞ';return}
+    setTimeout(()=>{if(net.phase==='lobby'&&net.code===code&&net.role==='guest'&&!net.others().some(p=>p.presence.role==='host')){net.leave();msg.textContent='その番号の部屋が見つかりません'}},5000);
+  }
+  setTimeout(()=>inp.focus(),50);
 }
 function togglePause(){
-  if(!game.running)return;game.paused=!game.paused;
+  if(!game.running||game.mode==='online')return; // the other player keeps going, so no pausing onlinegame.paused=!game.paused;
   if(game.paused){card.innerHTML=`<h2>一時停止</h2><button class="choice main" id="resume">つづける</button><button class="choice" id="quit">やめてタイトルへ</button>`;
     overlay.hidden=false;
     document.getElementById('resume').onclick=togglePause;
