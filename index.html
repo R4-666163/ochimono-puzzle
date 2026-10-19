@@ -336,7 +336,7 @@ const net={room:null,r:null,role:null,code:'',phase:'idle',opp:null,me:null,read
     const room=await this.getRoom();if(!room)throw new Error('noroom');
     this.leave();
     this.r=await room.join('bdt-'+code);
-    Object.assign(this,{code,role,phase:'lobby',opp:null,ready:false,seq:0,log:[],seen:0,lastB:''});
+    Object.assign(this,{code,role,phase:'lobby',opp:null,ready:false,seq:0,log:[],seen:0,lastB:'',round:1,wantAgain:false});
     this.unsub=this.r.onPeers(()=>this.tick());
     await this.r.presence({app:'bdt',role,st:'wait'});
   },
@@ -358,13 +358,23 @@ const net={room:null,r:null,role:null,code:'',phase:'idle',opp:null,me:null,read
       }
       return;
     }
-    if(this.phase!=='play')return;
     const o=others.find(p=>p.peer===this.opp);
-    if(!o){if(game.running){game.running=false;this.phase='end';showEnd(true,'left')}return}
+    if(this.phase==='end'){
+      // after a match: both pick もう一回 -> next round; the other leaving (やめる) sends everyone home
+      if(!o){goHome('相手がやめたので、ホームにもどりました');return}
+      const s=o.presence,theirs=s.rm===this.round;
+      if(this.wantAgain&&theirs){this.round++;this.begin();return}
+      const note=document.getElementById('rmNote');if(note)note.textContent=theirs?'相手は「もう一回」を選んでいます':'';
+      return;
+    }
+    if(this.phase!=='play')return;
+    if(!o){goHome(game.running?'相手が部屋を出たので、あなたの勝ちです':'相手が部屋を出ました');return}
     this.apply(o.presence);
   },
+  again(){this.wantAgain=true;this.r.presence({rm:this.round}).catch(()=>{});this.tick()},
   begin(){
-    this.phase='play';this.view.g=mkG();this.view.piece=null;this.view.state='play';this.view.pending=0;this.lastB='';
+    this.phase='play';this.wantAgain=false;this.seq=0;this.log=[];this.seen=0;
+    this.view.g=mkG();this.view.piece=null;this.view.state='play';this.view.pending=0;this.lastB='';
     game.running=false;game.p.reset(); // never let a finished match's board (or its "dead" flag) reach the new opponent
     card.innerHTML=`<h2 class="go"><span>ゲームスタート!</span></h2>`;overlay.hidden=false;
     setTimeout(()=>{if(this.phase==='play')game.startOnline()},1200);
@@ -375,11 +385,12 @@ const net={room:null,r:null,role:null,code:'',phase:'idle',opp:null,me:null,read
     if(!this.r)return;const p=game.p;let b='';
     for(let y=0;y<H;y++)for(let dc=0;dc<2*W;dc++)if(valid(dc,y)){const x=p.g[y][dc];b+=x?BCH[x.c+(x.junk?9:0)]:'0'}
     const pc=p.piece&&p.state==='play'?[p.piece.o,p.piece.dc,p.piece.y,...p.piece.c]:null;
-    this.r.presence({st:this.phase,b,pc,pd:p.pending,dead:p.state==='dead',atk:{s:this.seq,l:this.log}}).catch(()=>{});
+    this.r.presence({st:this.phase,r:this.round,b,pc,pd:p.pending,dead:p.state==='dead',atk:{s:this.seq,l:this.log}}).catch(()=>{});
   },
   attack(sent){for(const {sh} of sent){this.log.push([++this.seq,SHAPES.indexOf(sh)]);if(this.log.length>12)this.log.shift()}this.send()},
   // the opponent's presence is untrusted: read only what parses, never trust counts it claims
   apply(s){
+    if(s.r!==this.round)return; // still showing the previous round: wait for their fresh state
     const v=this.view;
     if(typeof s.b==='string'&&s.b!==this.lastB){this.lastB=s.b;const g=mkG();let i=0;
       for(let y=0;y<H;y++)for(let dc=0;dc<2*W;dc++)if(valid(dc,y)){const k=BCH.indexOf(s.b[i++]);
@@ -591,10 +602,19 @@ function showEnd(win,why){
   const head=`<h2>${win?'<span>かち!</span>':'まけ…'}</h2>${why==='left'?'<p>相手が部屋を出ました</p>':''}
   <p>スコア <b>${game.p.score.toLocaleString()}</b> ・ 最大 <b>${game.p.maxChain}</b> れんさ</p>`;
   if(game.mode==='online'){
-    card.innerHTML=head+`<button class="choice main" id="toTitle">タイトルへ</button>`;
-    document.getElementById('toTitle').onclick=()=>{net.leave();game.mode='cpu';game.c=cpuField;setSideLabel();showStart()};
+    if(why==='left'){card.innerHTML=head+`<button class="choice main" id="toTitle">ホームへ</button>`;document.getElementById('toTitle').onclick=()=>goHome('')}
+    else{
+      card.innerHTML=head+`<p class="err" id="rmNote"></p><div class="choices two"><button class="choice main" id="againBtn">もう一回</button><button class="choice" id="quitBtn">やめる</button></div>`;
+      document.getElementById('againBtn').onclick=e=>{e.target.disabled=true;e.target.textContent='相手を待っています…';net.again()};
+      document.getElementById('quitBtn').onclick=()=>goHome('');
+      net.tick();
+    }
   }else{card.innerHTML=head+`<p style="font-weight:800">もう一回(強さを選ぶ)</p>${diffButtons()}`;bindChoices()}
   overlay.hidden=false;
+}
+function goHome(msg){
+  net.leave();game.running=false;game.mode='cpu';game.c=cpuField;setSideLabel();showStart();
+  if(msg)document.getElementById('onMsg').textContent=msg;
 }
 function setSideLabel(){document.getElementById('sideLbl').textContent=game.mode==='online'?'あいて':'CPU';document.getElementById('pauseBtn').style.visibility=game.mode==='online'?'hidden':''}
 // ---- Online menu ----
