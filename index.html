@@ -509,7 +509,7 @@ let last=performance.now();
 function frame(now){
   const dt=Math.min(50,now-last);last=now;
   if(game.running&&!game.paused){
-    game.elapsed+=dt;game.speed=Math.max(220,900-game.elapsed/1000*6);
+    game.elapsed+=dt; // fall speed stays at game.speed (900ms a row) for the whole match
     game.p.update(dt);if(game.running&&game.mode==='cpu')game.c.update(dt);
   }
   drawField(pc,game.p,sizes.p,true,now);drawField(cc,game.c,sizes.c,false,now);drawNext();
