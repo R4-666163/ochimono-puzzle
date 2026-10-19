@@ -120,13 +120,15 @@ function rot(p){ // 60° clockwise
 function fits(g,p){return pcells(p).every(([dc,y])=>valid(dc,y)&&!g[y][dc])}
 function place(g,p,pid,from){const fc=from?pcells(from):null;pcells(p).forEach(([dc,y,c],i)=>{g[y][dc]={c,pid,fresh:true,vx:fc?fc[i][0]:dc,vy:fc?fc[i][1]:y}})}
 // let the whole trio slide down into the honeycomb as one rigid piece
-function settle(g,p){
-  for(;;){
-    if(fits(g,{...p,y:p.y+2})){p={...p,y:p.y+2};continue}
-    const a={...p,dc:p.dc-1,y:p.y+1},b={...p,dc:p.dc+1,y:p.y+1},fa=fits(g,a),fb=fits(g,b);
-    if(fa&&fb)p=p.dc<W?b:a;else if(fa)p=a;else if(fb)p=b;else return p;
-  }
+// one step of the trio's fall: straight down a full row, else slide half a row down a slope; null when it rests
+function stepDown(g,p){
+  if(fits(g,{...p,y:p.y+2}))return {...p,y:p.y+2};
+  const a={...p,dc:p.dc-1,y:p.y+1},b={...p,dc:p.dc+1,y:p.y+1},fa=fits(g,a),fb=fits(g,b);
+  if(fa&&fb)return p.dc<W?b:a;if(fa)return a;if(fb)return b;return null;
 }
+function settle(g,p){for(let n;(n=stepDown(g,p));)p=n;return p}
+// ms for one step at row interval iv: a slope step drops half as far, so it takes half as long
+const stepTime=(p,n,iv)=>iv*(n.y-p.y)/2;
 // a trio whose balls rolled apart is no longer one trio
 function splitPids(g){
   const seen=new Set(),used=new Set();
@@ -279,9 +281,11 @@ class Field{
       case 'play':{
         if(this.cpu)this.cpuStep(dt);
         if(this.state!=='play')break;
-        const down={...this.piece,y:this.piece.y+2};
-        if(!fits(this.g,down)){this.lockT+=dt;if(this.lockT>450)this.lock()}
-        else{this.lockT=0;this.fallT+=dt;const iv=this.soft?45:game.speed;if(this.fallT>=iv){this.fallT=Math.min(this.fallT-iv,iv);this.piece=down;if(this.soft)this.score+=1}}
+        // falling on its own follows the same path as a hard drop (down slopes too), so it never
+        // stops early and then jumps to its real resting place when it locks
+        const down=stepDown(this.g,this.piece);
+        if(!down){this.lockT+=dt;if(this.lockT>450)this.lock()}
+        else{this.lockT=0;this.fallT+=dt;const iv=stepTime(this.piece,down,this.soft?45:game.speed);if(this.fallT>=iv){this.fallT=Math.min(this.fallT-iv,iv);this.piece=down;if(this.soft)this.score+=1}}
         break}
       case 'settle':
         if(still){const r=findClear(this.g);
@@ -527,8 +531,9 @@ function drawField(cv,f,cell,mine,now){
     if(mine){ctx.strokeStyle='rgba(255,255,255,.35)';ctx.lineWidth=Math.max(1.5,cell*.06);
       for(const [dc,y] of pcells(f.dropPos())){ctx.beginPath();ctx.arc(PX(dc,cell),PY(y,cell),r*.86,0,7);ctx.stroke()}}
     // glide toward the next row at the current fall speed instead of jumping a row at a time
-    const iv=f.soft?45:game.speed,off=fits(f.g,{...f.piece,y:f.piece.y+2})?2*Math.min(1,f.fallT/iv):0;
-    const pts=pcells(f.piece).map(([dc,y,c])=>[PX(dc,cell),PY(y+off,cell),c]);
+    const nx=stepDown(f.g,f.piece),k=nx?Math.min(1,f.fallT/stepTime(f.piece,nx,f.soft?45:game.speed)):0;
+    const ox=nx?(nx.dc-f.piece.dc)*k:0,oy=nx?(nx.y-f.piece.y)*k:0;
+    const pts=pcells(f.piece).map(([dc,y,c])=>[PX(dc+ox,cell),PY(y+oy,cell),c]);
     ctx.strokeStyle='rgba(255,255,255,.3)';ctx.lineWidth=cell*.2;
     for(let i=0;i<3;i++)link(ctx,pts[i],pts[(i+1)%3]);
     for(const [x,y,c] of pts)ball(ctx,x,y,r,c);
