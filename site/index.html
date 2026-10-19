@@ -99,7 +99,8 @@ canvas{display:block;touch-action:none}
 // Honeycomb well in "doubled" coordinates: a ball at row y sits at column dc, where dc and y share parity.
 const W=9,H=15,R=0.866,NCOL=5,CLEAR=6,JUNK=9,JUNK_FALL=0.018;
 const COLORS={1:['#ffb3a8','#ff6f5e','#b8382b'],2:['#fff1b0','#ffc93c','#c78a00'],3:['#bfe6ff','#4fb3ff','#1a62b3'],4:['#c4f5d6','#4fd189','#1a8a4c'],5:['#e6dbff','#a98bff','#6343c4']};
-const DIFF={easy:{name:'かんたん',delay:520,noise:70},normal:{name:'ふつう',delay:220,noise:7},hard:{name:'つよい',delay:140,noise:0}};
+// build: how much the CPU cares about growing a 技 shape it hasn't finished yet
+const DIFF={easy:{name:'かんたん',delay:520,noise:70,build:0},normal:{name:'ふつう',delay:220,noise:7,build:0.3},hard:{name:'つよい',delay:140,noise:0,build:0.7}};
 const NB=[[-2,0],[2,0],[-1,-1],[1,-1],[-1,1],[1,1]];
 const SPAWN={o:0,dc:8,y:0};
 const rnd=n=>Math.floor(Math.random()*n);
@@ -317,7 +318,7 @@ class Field{
       for(let k=-8;k<=8;k++){
         let p={...s,dc:s.dc+2*k};if(!fits(this.g,p))continue;
         p=settle(this.g,p);
-        const v=evaluate(this.g,p)+Math.random()*d.noise;
+        const v=evaluate(this.g,p,d.build)+Math.random()*d.noise;
         if(!best||v>best.v)best={v,r,dc:s.dc+2*k};
       }
       s=rot(s);
@@ -333,13 +334,31 @@ class Field{
     this.hardDrop();
   }
 }
-function evaluate(g0,p){
+// how far along the best unfinished 技 of each colour is: a shape spot holding 3-5 balls of one
+// colour with the rest still empty (a ヘキサゴン's centre must not be that colour)
+const BUILD_SCORE=[0,0,0,4,18,50];
+function shapePotential(g){
+  const best={};
+  for(let gy=0;gy<H;gy++)for(let gx=0;gx<2*W;gx++){if(!valid(gx,gy))continue;
+    for(const sh of SHAPES){
+      const ox=gx-sh.cells[0][0],oy=gy-sh.cells[0][1];let col=0,k=0,ok=true;
+      for(const [x,y] of sh.cells){const X=x+ox,Y=y+oy;if(!valid(X,Y)){ok=false;break}
+        const b=g[Y][X];if(b){if(col&&b.c!==col){ok=false;break}col=b.c;k++}}
+      if(!ok||k<3||k>5)continue;
+      if(sh.center){const m=valid(ox,oy)&&g[oy][ox];if(m&&m.c===col)continue}
+      const s=BUILD_SCORE[k];if(!(best[col]>=s))best[col]=s;
+    }}
+  let t=0;for(const k in best)t+=best[k];return t;
+}
+function evaluate(g0,p,build){
   const g=g0.map(r=>r.map(b=>b?{c:b.c,pid:b.pid,junk:b.junk}:null));
   place(g,p,-1);physics(g,true);
   let chain=0,removed=0,r;
   let atk=0;
   while((r=findClear(g))){chain++;removed+=r.removed;for(const sh of r.shapes)atk+=sh.atk;for(const [dc,y] of r.list)g[y][dc]=null;physics(g,true)}
-  let v=removed*8+chain*chain*45+atk*12,adj=0,top=H;
+  // a plain clear sends nothing and spends balls a 技 could use, so it is worth little once building
+  let v=removed*(atk||!build?8:2)+chain*chain*45+atk*(build?20:12),adj=0,top=H;
+  if(build)v+=shapePotential(g)*build;
   for(let y=0;y<H;y++)for(let dc=0;dc<2*W;dc++){const b=g[y][dc];if(!b)continue;top=Math.min(top,y);
     for(const [ax,ay] of [[2,0],[1,1],[-1,1]]){const nx=dc+ax,ny=y+ay;if(valid(nx,ny)&&g[ny][nx]&&g[ny][nx].c===b.c)adj++}}
   v+=adj*5-(H-top)*3;
