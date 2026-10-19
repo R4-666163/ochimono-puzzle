@@ -27,7 +27,7 @@ h1 span{color:var(--coral)}
 .stat{display:flex;flex-direction:column;align-items:flex-end;line-height:1.1}
 .stat b{font-family:var(--display);font-weight:400;font-size:1.05rem;font-variant-numeric:tabular-nums}
 .stat small{font-size:.62rem;letter-spacing:.08em;opacity:.7}
-#pauseBtn{width:38px;height:38px;border-radius:50%;border:2px solid var(--ink);background:transparent;color:var(--ink);font-weight:800;font-size:.9rem;cursor:pointer}
+#pauseBtn{width:44px;height:44px;flex:none;touch-action:manipulation;border-radius:50%;border:2px solid var(--ink);background:transparent;color:var(--ink);font-weight:800;font-size:.9rem;cursor:pointer}
 #arena{flex:1;min-height:0;display:flex;gap:10px}
 #pwrap{flex:1;min-width:0;display:flex;align-items:flex-start;justify-content:center}
 #side{width:30%;max-width:150px;display:flex;flex-direction:column;gap:6px;min-height:0}
@@ -641,7 +641,8 @@ function goHome(msg){
   net.leave();game.running=false;game.mode='cpu';game.c=cpuField;setSideLabel();showStart();
   if(msg)document.getElementById('onMsg').textContent=msg;
 }
-function setSideLabel(){document.getElementById('sideLbl').textContent=game.mode==='online'?'あいて':'CPU';document.getElementById('pauseBtn').style.visibility=game.mode==='online'?'hidden':''}
+function setSideLabel(){const on=game.mode==='online',b=document.getElementById('pauseBtn');
+  document.getElementById('sideLbl').textContent=on?'あいて':'CPU';b.textContent=on?'×':'II';b.setAttribute('aria-label',on?'対戦をやめる':'一時停止')}
 // ---- Online menu ----
 function onlineMenu(){return `<div class="online"><button class="choice" id="onBtn">オンライン</button>
   <div class="choices two" id="onMenu" hidden><button class="choice" id="hostBtn">部屋を立てる</button><button class="choice" id="joinBtn">部屋に入る</button></div>
@@ -691,8 +692,18 @@ function showJoin(err){
   }
   setTimeout(()=>inp.focus(),50);
 }
+// online can't pause (the other player keeps going), so the button only offers to quit; the game runs on behind it
+function askQuitOnline(){
+  if(!game.running||!overlay.hidden)return;
+  card.innerHTML=`<h2>対戦をやめますか?</h2><p>やめると負けになります。相手の対戦は止まらないので、つづけるならすぐ戻ってください。</p>
+    <div class="choices two"><button class="choice main" id="resume">つづける</button><button class="choice" id="quit">やめる</button></div>`;
+  overlay.hidden=false;
+  document.getElementById('resume').onclick=()=>{if(game.running)hideOverlay()};
+  document.getElementById('quit').onclick=()=>goHome('');
+}
 function togglePause(){
-  if(!game.running||game.mode==='online')return; // the other player keeps going, so no pausing onlinegame.paused=!game.paused;
+  if(game.mode==='online'){askQuitOnline();return}
+  if(!game.running)return;game.paused=!game.paused;
   if(game.paused){card.innerHTML=`<h2>一時停止</h2><button class="choice main" id="resume">つづける</button><button class="choice" id="quit">やめてタイトルへ</button>`;
     overlay.hidden=false;
     document.getElementById('resume').onclick=togglePause;
@@ -700,7 +711,7 @@ function togglePause(){
   }else hideOverlay();
 }
 document.getElementById('pauseBtn').addEventListener('click',togglePause);
-document.addEventListener('visibilitychange',()=>{if(document.hidden&&game.running&&!game.paused)togglePause()});
+document.addEventListener('visibilitychange',()=>{if(document.hidden&&game.mode==='cpu'&&game.running&&!game.paused)togglePause()});
 
 layout();showStart();requestAnimationFrame(frame);
 })();
