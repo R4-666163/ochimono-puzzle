@@ -187,8 +187,8 @@ function findClear(g){
     while(st.length){const [x,yy]=st.pop();grp.push([x,yy]);
       for(const [ax,ay] of NB){const nx=x+ax,ny=yy+ay;
         if(valid(nx,ny)&&g[ny][nx]&&g[ny][nx].c===b.c&&!seen.has(key(nx,ny))){seen.add(key(nx,ny));st.push([nx,ny])}}}
-    // a 技 always goes; a plain group only once a ball you just placed (or one that fell from your
-    // move) is in it -- junk landing next to its colour alone is not enough
+    // a 技 always goes; a plain group needs a ball that just moved (your trio, what fell after a clear,
+    // or junk that just landed) -- untouched balls never clear on their own
     if(grp.length>=CLEAR){const sh=shapeOf(g,grp,b.c);
       if(sh||grp.some(([x,yy])=>g[yy][x].fresh)){groups++;grp.forEach(([x,yy])=>hit.add(key(x,yy)));if(sh){shapes.push(sh);techColors.add(b.c)}}}
   }
@@ -274,8 +274,8 @@ class Field{
     this.popups=this.popups.filter(p=>(p.t+=dt)<1100);
     switch(this.state){
       case 'spawn':this.spawn();break;
-      // junk has landed: a 技 it completed fires now (and can chain); plain groups wait for your ball
-      case 'gwait':if(still){this.chain=0;this.sent=[];this.state='settle'}break;
+      // junk has landed: every group of 6+ it made clears right away, and a 技 it completed fires and attacks
+      case 'gwait':if(still){for(const row of this.g)for(const b of row)if(b)b.fresh=true;this.chain=0;this.sent=[];this.state='settle'}break;
       case 'play':{
         if(this.cpu)this.cpuStep(dt);
         if(this.state!=='play')break;
@@ -617,7 +617,7 @@ function showStart(){
   <p>三角の3つ組ビー玉を蜂の巣状に積んで、CPUと対戦する落ちものパズル。</p>
   <ul>
     <li>支えのない玉は、すき間へ<b>転がり落ちる</b></li>
-    <li>同じ色を<b>6つ以上</b>つなげると消える。じゃま玉が降ってきてつながっただけでは消えず、<b>自分の玉を足してつなげたとき</b>に消える</li>
+    <li>同じ色を<b>6つ以上</b>つなげると消える。<b>じゃま玉が降ってきて</b>同じ色が6つ以上つながったときも、その場で消える</li>
     <li>下の<b>わざ</b>(6つの決まった形。まわりに同じ色がくっついていてもOK)で消すと、<b>その色の玉がぜんぶ消え</b>、相手に<b>じゃま玉</b>(白いふち)が降る。それ以外の消し方では降らない</li>
     <li>降ってきたじゃま玉で<b>わざの形ができたとき</b>も、その場で消えて相手に送れる</li>
     <li>じゃま玉は、作ったわざと<b>同じ形の連なり</b>で、<b>2個ずつ同じ色</b>になって降る。連鎖でわざを重ねると、そのぶん増える。相殺はない</li>
