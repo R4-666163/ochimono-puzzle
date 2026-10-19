@@ -1,9 +1,16 @@
 // Cloudflare の公開設定
 {
   "name": "ochimono-puzzle",
+  "main": "src/index.js",
   "compatibility_date": "2026-10-01",
-  // site/ フォルダの中身（ゲーム本体）だけを公開する
+  // site/ フォルダの中身（ゲーム本体）を公開する
   "assets": {
-    "directory": "./site"
-  }
+    "directory": "./site",
+    "binding": "ASSETS"
+  },
+  // オンライン対戦の部屋（6桁コードごとに1つ）
+  "durable_objects": {
+    "bindings": [{ "name": "ROOMS", "class_name": "Room" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Room"] }]
 }

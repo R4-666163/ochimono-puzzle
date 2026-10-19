@@ -326,11 +326,36 @@ const game={diff:'normal',mode:'cpu',speed:900,elapsed:0,running:false,paused:fa
   onDead(f){this.running=false;if(this.mode==='online'){net.phase='end';net.send();setTimeout(()=>showEnd(false),600)}else setTimeout(()=>showEnd(f===this.c),600)}
 };
 
+// The same calls as claude.ai's named room (join/presence/peers/onPeers/leave), over a WebSocket
+// to this site's /ws/<name> relay (src/index.js), so anyone with the page can play online.
+function wsRoom(){
+  return {join:name=>new Promise((resolve,reject)=>{
+    const ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws/'+name);
+    let me=null,list=[],handlers=[];
+    const peers=()=>list.map(p=>({peer:p.peer,presence:p.presence||{},sameTab:p.peer===me,isMe:p.peer===me,kind:'viewer',guest:false,by:null}));
+    const fire=()=>{const ps=peers();for(const h of handlers)h({peers:ps})};
+    const timer=setTimeout(()=>{try{ws.close()}catch(_){}reject(new Error('timeout'))},8000);
+    const api={name,peers,connected:()=>ws.readyState===1,
+      onPeers(h){handlers.push(h);setTimeout(()=>h({peers:peers()}),0);return()=>{handlers=handlers.filter(x=>x!==h)}},
+      async presence(patch){if(ws.readyState===1)ws.send(JSON.stringify({t:'p',patch}))},
+      async leave(){handlers=[];try{ws.close()}catch(_){}}};
+    ws.onmessage=e=>{let d;try{d=JSON.parse(e.data)}catch(_){return}
+      if(d.t==='hello'){me=d.peer;clearTimeout(timer);resolve(api)}
+      else if(d.t==='peers'&&Array.isArray(d.peers)){list=d.peers.filter(p=>p&&typeof p.peer==='string');fire()}};
+    ws.onerror=()=>{if(!me){clearTimeout(timer);reject(new Error('ws'))}};
+    ws.onclose=()=>{list=list.filter(p=>p.peer===me);fire()}; // cut off: everyone else is gone as far as we can tell
+  })};
+}
+
 // ---- Online: a 6-digit code names a room; each side runs its own well and shares it through room presence ----
 const BCH='0123456789abcde'; // 0 empty, 1-5 ball, a-e junk ball of that color
 const net={room:null,r:null,role:null,code:'',phase:'idle',opp:null,me:null,ready:false,seq:0,log:[],seen:0,timer:null,unsub:null,lastB:'',
   view:{g:mkG(),piece:null,state:'play',pending:0,popups:[],flash:null,t:0,fallT:0,soft:false},
-  async getRoom(){if(!this.room&&window.claude&&typeof claude.use==='function')this.room=await claude.use('room').catch(()=>null);return this.room},
+  // claude.ai's room when opened there; otherwise our own relay on the site that served this page
+  async getRoom(){
+    if(!this.room&&window.claude&&typeof claude.use==='function')this.room=await claude.use('room').catch(()=>null);
+    if(!this.room&&/^https?:$/.test(location.protocol)&&!window.claude)this.room=wsRoom();
+    return this.room},
   others(){return this.r?this.r.peers().filter(p=>!p.sameTab&&p.presence&&p.presence.app==='bdt'):[]},
   async open(code,role){
     const room=await this.getRoom();if(!room)throw new Error('noroom');
@@ -624,7 +649,7 @@ function onlineMenu(){return `<div class="online"><button class="choice" id="onB
 function bindOnline(){
   const m=document.getElementById('onMenu'),msg=document.getElementById('onMsg');
   document.getElementById('onBtn').onclick=async()=>{
-    if(!(await net.getRoom())){msg.textContent='オンライン対戦は claude.ai で開いたときだけ遊べます';return}
+    if(!(await net.getRoom())){msg.textContent='オンライン対戦は、公開ページか claude.ai で開いたときに遊べます';return}
     m.hidden=false;msg.textContent='';
   };
   document.getElementById('hostBtn').onclick=hostRoom;
