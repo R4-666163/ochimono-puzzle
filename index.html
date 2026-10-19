@@ -53,6 +53,9 @@ canvas{display:block;touch-action:none}
 .card h2 span{color:var(--coral)}
 .card p{margin:0;font-size:.85rem;line-height:1.6}
 .card ul{margin:0;padding-left:1.1em;font-size:.82rem;line-height:1.65}
+.shapes{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;background:var(--glass);border-radius:14px;padding:8px 4px}
+.shapes figure{margin:0;display:flex;flex-direction:column;align-items:center;gap:4px}
+.shapes figcaption{color:#fff;font-size:.6rem;font-weight:800;text-align:center;line-height:1.3}
 .choices{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 .choice{border:2px solid var(--ink);background:transparent;color:var(--ink);border-radius:14px;padding:12px 4px;font-family:var(--body);font-weight:800;font-size:.95rem;cursor:pointer}
 .choice.main{background:var(--ink);color:#fff}
@@ -145,8 +148,29 @@ function physics(g){
   }
   splitPids(g);
 }
+// only these exact 6-ball shapes send junk to the other side
+const LINE=d=>Array.from({length:6},(_,i)=>[d[0]*i,d[1]*i]);
+const SHAPES=[
+  {name:'三角形',atk:4,cells:[[0,0],[-1,1],[1,1],[-2,2],[0,2],[2,2]]},
+  {name:'逆三角形',atk:4,cells:[[-2,0],[0,0],[2,0],[-1,1],[1,1],[0,2]]},
+  {name:'一直線',atk:4,cells:LINE([2,0])},
+  {name:'一直線',atk:4,cells:LINE([1,1])},
+  {name:'一直線',atk:4,cells:LINE([-1,1])},
+  {name:'ヘキサゴン',atk:6,center:true,cells:NB.map(([x,y])=>[x,y])},
+].map(s=>({...s,cells:s.cells.sort((a,b)=>a[1]-b[1]||a[0]-b[0])}));
+function shapeOf(g,grp,c){
+  if(grp.length!==6)return null;
+  const s=grp.slice().sort((a,b)=>a[1]-b[1]||a[0]-b[0]);
+  for(const sh of SHAPES){
+    const t=sh.cells,ox=s[0][0]-t[0][0],oy=s[0][1]-t[0][1];
+    if(!t.every(([x,y],i)=>s[i][0]===x+ox&&s[i][1]===y+oy))continue;
+    if(sh.center){const m=valid(ox,oy)&&g[oy][ox];if(!m||m.c===JUNK||m.c===c)continue}
+    return sh;
+  }
+  return null;
+}
 function findClear(g){
-  const seen=new Set(),hit=new Set();let groups=0;
+  const seen=new Set(),hit=new Set(),shapes=[];let groups=0;
   const key=(dc,y)=>y*64+dc;
   for(let y=0;y<H;y++)for(let dc=0;dc<2*W;dc++){
     const b=g[y][dc];if(!b||b.c===JUNK||seen.has(key(dc,y)))continue;
@@ -154,7 +178,7 @@ function findClear(g){
     while(st.length){const [x,yy]=st.pop();grp.push([x,yy]);
       for(const [ax,ay] of NB){const nx=x+ax,ny=yy+ay;
         if(valid(nx,ny)&&g[ny][nx]&&g[ny][nx].c===b.c&&!seen.has(key(nx,ny))){seen.add(key(nx,ny));st.push([nx,ny])}}}
-    if(grp.length>=CLEAR){groups++;grp.forEach(([x,yy])=>hit.add(key(x,yy)))}
+    if(grp.length>=CLEAR){groups++;grp.forEach(([x,yy])=>hit.add(key(x,yy)));const sh=shapeOf(g,grp,b.c);if(sh)shapes.push(sh)}
   }
   if(!groups)return null;
   // whole trios go with them, whatever their colors
@@ -164,7 +188,7 @@ function findClear(g){
   for(const k of [...hit]){const y=Math.floor(k/64),dc=k%64;
     for(const [ax,ay] of NB){const nx=dc+ax,ny=y+ay;if(valid(nx,ny)&&g[ny][nx]&&g[ny][nx].c===JUNK)hit.add(key(nx,ny))}}
   const list=[...hit].map(k=>[k%64,Math.floor(k/64)]);
-  return {list,removed:list.length,groups};
+  return {list,removed:list.length,groups,shapes};
 }
 
 class Field{
@@ -216,8 +240,9 @@ class Field{
         if(still){const r=findClear(this.g);
           if(r){this.chain++;this.maxChain=Math.max(this.maxChain,this.chain);this.flash=r.list;this.t=0;this.state='flash';
             this.score+=r.removed*10*this.chain+(r.groups-1)*50;
-            this.attack+=Math.max(1,Math.floor((r.removed-4)/2))+(this.chain-1)*3+(r.groups-1)*2;
+            for(const sh of r.shapes)this.attack+=sh.atk+(this.chain-1)*2;
             this.popups.push({txt:this.chain>=2?this.chain+'れんさ!':r.removed+'こ消し',t:0,small:this.chain<2});
+            if(r.shapes.length)this.popups.push({txt:[...new Set(r.shapes.map(s=>s.name))].join('・')+'!',t:0,small:true,hi:true});
           }else this.endResolve()}
         break;
       case 'flash':this.t+=dt;if(this.t>380){for(const [dc,y] of this.flash)this.g[y][dc]=null;this.flash=null;physics(this.g);this.state='settle'}break;
@@ -255,8 +280,9 @@ function evaluate(g0,p){
   const g=g0.map(r=>r.map(b=>b?{c:b.c,pid:b.pid}:null));
   place(g,p,-1);physics(g);
   let chain=0,removed=0,r;
-  while((r=findClear(g))){chain++;removed+=r.removed;for(const [dc,y] of r.list)g[y][dc]=null;physics(g)}
-  let v=removed*8+chain*chain*45,adj=0,top=H;
+  let atk=0;
+  while((r=findClear(g))){chain++;removed+=r.removed;for(const sh of r.shapes)atk+=sh.atk+(chain-1)*2;for(const [dc,y] of r.list)g[y][dc]=null;physics(g)}
+  let v=removed*8+chain*chain*45+atk*70,adj=0,top=H;
   for(let y=0;y<H;y++)for(let dc=0;dc<2*W;dc++){const b=g[y][dc];if(!b)continue;top=Math.min(top,y);
     if(b.c!==JUNK)for(const [ax,ay] of [[2,0],[1,1],[-1,1]]){const nx=dc+ax,ny=y+ay;if(valid(nx,ny)&&g[ny][nx]&&g[ny][nx].c===b.c)adj++}}
   v+=adj*5-(H-top)*3;
@@ -353,7 +379,7 @@ function drawField(cv,f,cell,mine,now){
   }
   for(const p of f.popups){const k=p.t/1100;ctx.globalAlpha=1-k;ctx.fillStyle='#fff';
     ctx.font=`${p.small?cell*.48:cell*.85}px "Dela Gothic One",sans-serif`;ctx.textAlign='center';
-    ctx.strokeStyle='rgba(20,53,56,.85)';ctx.lineWidth=cell*.12;const y=h*(p.low?.62:.45)-k*cell;
+    ctx.strokeStyle='rgba(20,53,56,.85)';ctx.lineWidth=cell*.12;const y=h*(p.low?.62:p.hi?.32:.45)-k*cell;
     ctx.strokeText(p.txt,w/2,y);ctx.fillText(p.txt,w/2,y);ctx.globalAlpha=1}
   if(f.state==='dead'){ctx.fillStyle='rgba(10,30,32,.6)';ctx.fillRect(0,0,w,h)}
   ctx.restore();
@@ -433,12 +459,30 @@ function showStart(){
     <li>支えのない玉は、すき間へ<b>転がり落ちる</b></li>
     <li>同じ色を<b>6つ以上</b>つなげると消える</li>
     <li>そのとき、消える玉と<b>線でつながった組の玉</b>も、色に関係なく一緒に消える</li>
-    <li>消すと相手に<b>じゃま玉</b>(白)が降る。じゃま玉は隣で玉が消えると一緒に消える</li>
+    <li>下の<b>決まった形</b>(ちょうど6つ)で消したときだけ、相手に<b>じゃま玉</b>(白)が降る。じゃま玉は隣で玉が消えると一緒に消える</li>
     <li>上の×印がふさがったら負け</li>
   </ul>
+  <div class="shapes">${ICONS.map((s,i)=>`<figure><canvas data-i="${i}"></canvas><figcaption>${s.label}</figcaption></figure>`).join('')}</div>
   <p style="font-size:.78rem;opacity:.8">操作:ボタン、またはフィールドを<b>タップで回転</b>・<b>左右になぞって移動</b>・<b>下にはらって落とす</b></p>
   <p style="font-weight:800">CPUの強さを選んでスタート</p>${diffButtons()}`;
-  bindChoices();overlay.hidden=false;
+  bindChoices();drawIcons();overlay.hidden=false;
+}
+const ICONS=[
+  {label:'三角形',cells:SHAPES[0].cells},
+  {label:'逆三角形',cells:SHAPES[1].cells},
+  {label:'一直線(ななめも)',cells:SHAPES[3].cells},
+  {label:'ヘキサゴン(真ん中は別の色)',cells:SHAPES[5].cells,center:true},
+];
+function drawIcons(){
+  card.querySelectorAll('.shapes canvas').forEach(cv=>{
+    const ic=ICONS[cv.dataset.i],pts=ic.cells.map(([x,y])=>[x,y,3]);if(ic.center)pts.push([0,0,1]);
+    const xs=pts.map(p=>p[0]/2),ys=pts.map(p=>p[1]*R),x0=Math.min(...xs),y0=Math.min(...ys);
+    const bw=Math.max(...xs)-x0+1,bh=Math.max(...ys)-y0+1,W2=64,H2=52,cell=Math.min(W2/bw,H2/bh);
+    cv.style.width=W2+'px';cv.style.height=H2+'px';cv.width=W2*dpr;cv.height=H2*dpr;
+    const ctx=cv.getContext('2d');ctx.setTransform(dpr,0,0,dpr,0,0);
+    const ox=(W2-bw*cell)/2,oy=(H2-bh*cell)/2;
+    for(const [x,y,c] of pts)ball(ctx,ox+(x/2-x0+.5)*cell,oy+(y*R-y0+.5)*cell,cell*.46,c);
+  });
 }
 function showEnd(win){
   card.innerHTML=`<h2>${win?'<span>かち!</span>':'まけ…'}</h2>
