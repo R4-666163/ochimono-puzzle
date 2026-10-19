@@ -253,7 +253,7 @@ class Field{
         if(this.state!=='play')break;
         const down={...this.piece,y:this.piece.y+2};
         if(!fits(this.g,down)){this.lockT+=dt;if(this.lockT>450)this.lock()}
-        else{this.lockT=0;this.fallT+=dt;const iv=this.soft?45:game.speed;if(this.fallT>=iv){this.fallT=0;this.piece=down;if(this.soft)this.score+=1}}
+        else{this.lockT=0;this.fallT+=dt;const iv=this.soft?45:game.speed;if(this.fallT>=iv){this.fallT=Math.min(this.fallT-iv,iv);this.piece=down;if(this.soft)this.score+=1}}
         break}
       case 'settle':
         if(still){const r=findClear(this.g);
@@ -390,7 +390,9 @@ function drawField(cv,f,cell,mine,now){
   if(f.piece&&f.state==='play'){
     if(mine){ctx.strokeStyle='rgba(255,255,255,.35)';ctx.lineWidth=Math.max(1.5,cell*.06);
       for(const [dc,y] of pcells(f.dropPos())){ctx.beginPath();ctx.arc(PX(dc,cell),PY(y,cell),r*.86,0,7);ctx.stroke()}}
-    const pts=pcells(f.piece).map(([dc,y,c])=>[PX(dc,cell),PY(y,cell),c]);
+    // glide toward the next row at the current fall speed instead of jumping a row at a time
+    const iv=f.soft?45:game.speed,off=fits(f.g,{...f.piece,y:f.piece.y+2})?2*Math.min(1,f.fallT/iv):0;
+    const pts=pcells(f.piece).map(([dc,y,c])=>[PX(dc,cell),PY(y+off,cell),c]);
     ctx.strokeStyle='rgba(255,255,255,.3)';ctx.lineWidth=cell*.2;
     for(let i=0;i<3;i++)link(ctx,pts[i],pts[(i+1)%3]);
     for(const [x,y,c] of pts)ball(ctx,x,y,r,c);
