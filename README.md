@@ -4,6 +4,8 @@
 
 ## 遊び方
 
+公開中：https://ochimono-puzzle.rsj58g310.workers.dev （Cloudflare。GitHub の main に push すると自動で更新される）
+
 `site/index.html` をブラウザで開くだけで遊べます（スマホ対応）。
 
 - 支えのない玉は、すき間へ転がり落ちる
