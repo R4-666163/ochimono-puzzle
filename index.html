@@ -1,0 +1,464 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>ビー玉トリオ</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&family=M+PLUS+Rounded+1c:wght@500;800&display=swap">
+<style>
+/* Layout: one-screen arcade. Player well large on the left, NEXT + CPU well stacked on the right, two-thumb pad at the bottom.
+   Look: ラムネ瓶 — pale aqua ground, bottle-glass green wells, glossy marbles stacked like a honeycomb. Deliberately single-theme. */
+:root{
+  --bg:#d3ebe6;
+  --bg2:#bfe0da;
+  --ink:#143538;
+  --glass:#1b474c;
+  --coral:#ff6f5e;
+  --pad:#eef8f6;
+  --pad-ink:#143538;
+  --display:"Dela Gothic One","Hiragino Sans","Noto Sans JP",system-ui,sans-serif;
+  --body:"M PLUS Rounded 1c","Hiragino Maru Gothic ProN","Noto Sans JP",system-ui,sans-serif;
+  color-scheme:light;
+}
+html,body{height:100%}
+body{background:radial-gradient(120% 80% at 20% 0%,#e6f6f2 0%,var(--bg) 55%,var(--bg2) 100%);color:var(--ink);font-family:var(--body);overflow:hidden;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
+#app{height:100%;display:flex;flex-direction:column;gap:8px;padding-left:max(12px,env(safe-area-inset-left,0px));padding-right:max(12px,env(safe-area-inset-right,0px));padding-block:8px;box-sizing:border-box;max-width:560px;margin:0 auto}
+header{display:flex;align-items:center;gap:10px}
+h1{font-family:var(--display);font-weight:400;font-size:1.25rem;margin:0;letter-spacing:.02em;flex:1;white-space:nowrap}
+h1 span{color:var(--coral)}
+.stat{display:flex;flex-direction:column;align-items:flex-end;line-height:1.1}
+.stat b{font-family:var(--display);font-weight:400;font-size:1.05rem;font-variant-numeric:tabular-nums}
+.stat small{font-size:.62rem;letter-spacing:.08em;opacity:.7}
+#pauseBtn{width:38px;height:38px;border-radius:50%;border:2px solid var(--ink);background:transparent;color:var(--ink);font-weight:800;font-size:.9rem;cursor:pointer}
+#arena{flex:1;min-height:0;display:flex;gap:10px}
+#pwrap{flex:1;min-width:0;display:flex;align-items:flex-start;justify-content:center}
+#side{width:30%;max-width:150px;display:flex;flex-direction:column;gap:6px;min-height:0}
+.lbl{font-family:var(--display);font-size:.72rem;letter-spacing:.14em;opacity:.75}
+#nwrap{background:var(--glass);border-radius:12px;padding:6px;display:flex;justify-content:center}
+#cwrap{flex:1;min-height:0;display:flex;align-items:flex-start;justify-content:center}
+canvas{display:block;touch-action:none}
+#pad{display:grid;grid-template-columns:1fr 1fr 14px 1fr 1fr;grid-template-rows:60px 60px;gap:8px;padding-bottom:6px}
+#bL{grid-column:1;grid-row:1/3;font-size:2rem}
+#bR{grid-column:2;grid-row:1/3;font-size:2rem}
+#bRot{grid-column:4/6;grid-row:1;font-size:1.8rem}
+#bD{grid-column:4;grid-row:2}
+#bH{grid-column:5;grid-row:2}
+.btn{height:100%;min-height:56px;border-radius:18px;border:none;background:var(--pad);color:var(--pad-ink);font-size:1.5rem;font-weight:800;box-shadow:0 4px 0 #9cc7bf,inset 0 1px 0 #fff;touch-action:none;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none;cursor:pointer;font-family:var(--body);display:flex;align-items:center;justify-content:center;flex-direction:column;line-height:1;transition:transform 60ms,background 60ms}
+.btn small{font-size:.56rem;margin-top:3px;opacity:.7;letter-spacing:.04em}
+.btn.on{transform:translateY(3px);box-shadow:0 1px 0 #9cc7bf;background:#d4eeea}
+.btn.rot{background:var(--coral);color:#fff;box-shadow:0 4px 0 #c94a3c}
+.btn.rot.on{box-shadow:0 1px 0 #c94a3c;background:#e85a4a}
+.btn:focus-visible,#pauseBtn:focus-visible,.choice:focus-visible{outline:3px solid var(--coral);outline-offset:2px}
+#overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(20,53,56,.55);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));z-index:5;overflow-y:auto}
+.card{background:#f4fbf9;color:var(--ink);border-radius:22px;padding:20px 18px;max-width:370px;width:100%;box-shadow:0 18px 40px rgba(0,0,0,.25);display:flex;flex-direction:column;gap:11px;margin-block:16px}
+.card h2{font-family:var(--display);font-weight:400;margin:0;font-size:1.6rem;text-wrap:balance}
+.card h2 span{color:var(--coral)}
+.card p{margin:0;font-size:.85rem;line-height:1.6}
+.card ul{margin:0;padding-left:1.1em;font-size:.82rem;line-height:1.65}
+.choices{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.choice{border:2px solid var(--ink);background:transparent;color:var(--ink);border-radius:14px;padding:12px 4px;font-family:var(--body);font-weight:800;font-size:.95rem;cursor:pointer}
+.choice.main{background:var(--ink);color:#fff}
+@media (prefers-reduced-motion:reduce){.btn{transition:none}}
+</style>
+
+<div id="app">
+  <header>
+    <h1>ビー玉<span>トリオ</span></h1>
+    <div class="stat"><small>スコア</small><b id="score">0</b></div>
+    <div class="stat"><small>最大れんさ</small><b id="maxc">0</b></div>
+    <button id="pauseBtn" aria-label="一時停止">II</button>
+  </header>
+  <main id="arena">
+    <div id="pwrap"><canvas id="pc" aria-label="あなたのフィールド"></canvas></div>
+    <aside id="side">
+      <div class="lbl">NEXT</div>
+      <div id="nwrap"><canvas id="nc"></canvas></div>
+      <div class="lbl">CPU</div>
+      <div id="cwrap"><canvas id="cc" aria-label="CPUのフィールド"></canvas></div>
+    </aside>
+  </main>
+  <div id="pad">
+    <button class="btn" id="bL" aria-label="左へ">◀</button>
+    <button class="btn" id="bR" aria-label="右へ">▶</button>
+    <button class="btn rot" id="bRot" aria-label="回転">⟳<small>回転</small></button>
+    <button class="btn" id="bD" aria-label="はやく落とす">▼<small>はやく</small></button>
+    <button class="btn" id="bH" aria-label="一気に落とす">⤓<small>落とす</small></button>
+  </div>
+</div>
+<div id="overlay"><div class="card" id="card"></div></div>
+
+<script>
+(()=>{
+// Honeycomb well in "doubled" coordinates: a ball at row y sits at column dc, where dc and y share parity.
+const W=8,H=14,R=0.866,NCOL=5,CLEAR=6,JUNK=9;
+const COLORS={1:['#ffb3a8','#ff6f5e','#b8382b'],2:['#fff1b0','#ffc93c','#c78a00'],3:['#bfe6ff','#4fb3ff','#1a62b3'],4:['#c4f5d6','#4fd189','#1a8a4c'],5:['#e6dbff','#a98bff','#6343c4']};
+const DIFF={easy:{name:'かんたん',delay:520,noise:70},normal:{name:'ふつう',delay:300,noise:18},hard:{name:'つよい',delay:140,noise:0}};
+const NB=[[-2,0],[2,0],[-1,-1],[1,-1],[-1,1],[1,1]];
+const SPAWN={o:0,dc:8,y:0};
+const rnd=n=>Math.floor(Math.random()*n);
+const valid=(dc,y)=>y>=0&&y<H&&dc>=0&&dc<=2*W-2+(y&1)&&((dc&1)===(y&1));
+const mkG=()=>Array.from({length:H},()=>Array(2*W).fill(null));
+let PID=1;
+
+function randPiece(){return {...SPAWN,c:[1+rnd(NCOL),1+rnd(NCOL),1+rnd(NCOL)]}}
+// o=0: point-up triangle [apex, lower-right, lower-left]; o=1: point-down [top-left, top-right, bottom]
+function pcells(p){
+  return p.o===0
+    ?[[p.dc,p.y,p.c[0]],[p.dc+1,p.y+1,p.c[1]],[p.dc-1,p.y+1,p.c[2]]]
+    :[[p.dc,p.y,p.c[0]],[p.dc+2,p.y,p.c[1]],[p.dc+1,p.y+1,p.c[2]]];
+}
+function rot(p){ // 60° clockwise
+  return p.o===0?{o:1,c:[p.c[2],p.c[0],p.c[1]],dc:p.dc-1,y:p.y+1}:{o:0,c:[p.c[0],p.c[1],p.c[2]],dc:p.dc+1,y:p.y-1};
+}
+function fits(g,p){return pcells(p).every(([dc,y])=>valid(dc,y)&&!g[y][dc])}
+function place(g,p,pid,from){const fc=from?pcells(from):null;pcells(p).forEach(([dc,y,c],i)=>{g[y][dc]={c,pid,vx:fc?fc[i][0]:dc,vy:fc?fc[i][1]:y}})}
+// let the whole trio slide down into the honeycomb as one rigid piece
+function settle(g,p){
+  for(;;){
+    if(fits(g,{...p,y:p.y+2})){p={...p,y:p.y+2};continue}
+    const a={...p,dc:p.dc-1,y:p.y+1},b={...p,dc:p.dc+1,y:p.y+1},fa=fits(g,a),fb=fits(g,b);
+    if(fa&&fb)p=p.dc<W?b:a;else if(fa)p=a;else if(fb)p=b;else return p;
+  }
+}
+// a trio whose balls rolled apart is no longer one trio
+function splitPids(g){
+  const seen=new Set(),used=new Set();
+  for(let y=0;y<H;y++)for(let dc=0;dc<2*W;dc++){const b=g[y][dc];if(!b||b.c===JUNK||seen.has(b))continue;
+    const comp=[b],st=[[dc,y]];seen.add(b);
+    while(st.length){const [x,yy]=st.pop();for(const [ax,ay] of NB){const nx=x+ax,ny=yy+ay;if(!valid(nx,ny))continue;const o=g[ny][nx];
+      if(o&&!seen.has(o)&&o.pid===b.pid&&o.c!==JUNK){seen.add(o);comp.push(o);st.push([nx,ny])}}}
+    if(used.has(b.pid)){const np=PID++;comp.forEach(o=>o.pid=np)}else used.add(b.pid);
+  }
+}
+const solid=(g,dc,y)=>!valid(dc,y)||!!g[y][dc];
+// balls without support on both lower sides roll or drop
+function physics(g){
+  let moved=true;
+  while(moved){moved=false;
+    for(let y=H-2;y>=0;y--)for(let dc=0;dc<2*W;dc++){
+      const b=g[y][dc];if(!b)continue;
+      const sL=solid(g,dc-1,y+1),sR=solid(g,dc+1,y+1);
+      if(sL&&sR)continue;
+      let t;
+      if(!sL&&!sR){t=(valid(dc,y+2)&&!g[y+2][dc])?[dc,y+2]:(dc<W?[dc+1,y+1]:[dc-1,y+1])}
+      else t=sL?[dc+1,y+1]:[dc-1,y+1];
+      g[t[1]][t[0]]=b;g[y][dc]=null;moved=true;
+    }
+  }
+  splitPids(g);
+}
+function findClear(g){
+  const seen=new Set(),hit=new Set();let groups=0;
+  const key=(dc,y)=>y*64+dc;
+  for(let y=0;y<H;y++)for(let dc=0;dc<2*W;dc++){
+    const b=g[y][dc];if(!b||b.c===JUNK||seen.has(key(dc,y)))continue;
+    const st=[[dc,y]],grp=[];seen.add(key(dc,y));
+    while(st.length){const [x,yy]=st.pop();grp.push([x,yy]);
+      for(const [ax,ay] of NB){const nx=x+ax,ny=yy+ay;
+        if(valid(nx,ny)&&g[ny][nx]&&g[ny][nx].c===b.c&&!seen.has(key(nx,ny))){seen.add(key(nx,ny));st.push([nx,ny])}}}
+    if(grp.length>=CLEAR){groups++;grp.forEach(([x,yy])=>hit.add(key(x,yy)))}
+  }
+  if(!groups)return null;
+  // whole trios go with them, whatever their colors
+  const pids=new Set();for(const k of hit){const y=Math.floor(k/64),dc=k%64;pids.add(g[y][dc].pid)}
+  for(let y=0;y<H;y++)for(let dc=0;dc<2*W;dc++){const b=g[y][dc];if(b&&b.c!==JUNK&&pids.has(b.pid))hit.add(key(dc,y))}
+  // junk next to anything removed breaks too
+  for(const k of [...hit]){const y=Math.floor(k/64),dc=k%64;
+    for(const [ax,ay] of NB){const nx=dc+ax,ny=y+ay;if(valid(nx,ny)&&g[ny][nx]&&g[ny][nx].c===JUNK)hit.add(key(nx,ny))}}
+  const list=[...hit].map(k=>[k%64,Math.floor(k/64)]);
+  return {list,removed:list.length,groups};
+}
+
+class Field{
+  constructor(cpu){this.cpu=cpu;this.reset()}
+  reset(){Object.assign(this,{g:mkG(),piece:null,next:randPiece(),state:'spawn',t:0,score:0,chain:0,maxChain:0,pending:0,attack:0,fallT:0,lockT:0,flash:null,popups:[],soft:false,plan:null,cpuT:0,gDone:false})}
+  spawn(){
+    if(this.pending>0&&!this.gDone){this.dropJunk();this.gDone=true;this.state='gwait';return}
+    this.gDone=false;
+    this.piece=this.next;this.next=randPiece();
+    if(!fits(this.g,this.piece)){this.state='dead';game.onDead(this);return}
+    this.state='play';this.fallT=0;this.lockT=0;
+    if(this.cpu)this.makePlan();
+  }
+  dropJunk(){
+    const n=Math.min(this.pending,8);this.pending-=n;
+    const spots=[];for(let y=0;y<3;y++)for(let dc=0;dc<2*W;dc++)if(valid(dc,y)&&!this.g[y][dc])spots.push([dc,y]);
+    spots.sort(()=>Math.random()-.5);
+    for(const [dc,y] of spots.slice(0,n))this.g[y][dc]={c:JUNK,pid:PID++,vx:dc,vy:y-4};
+    physics(this.g);
+  }
+  animate(dt){
+    const step=dt*0.012;let still=true;
+    for(let y=0;y<H;y++)for(let dc=0;dc<2*W;dc++){const b=this.g[y][dc];if(!b)continue;
+      const dx=(dc-b.vx)/2,dy=(y-b.vy)*R,d=Math.hypot(dx,dy);
+      if(d<1e-3){b.vx=dc;b.vy=y;continue}
+      still=false;const s=Math.min(1,step/d);b.vx+=(dc-b.vx)*s;b.vy+=(y-b.vy)*s}
+    return still;
+  }
+  move(dx){if(this.state!=='play')return false;const p={...this.piece,dc:this.piece.dc+2*dx};if(fits(this.g,p)){this.piece=p;this.lockT=0;return true}return false}
+  rotate(){if(this.state!=='play')return;const r=rot(this.piece);
+    for(const [kx,ky] of [[0,0],[-2,0],[2,0],[0,2],[0,-2]]){const p={...r,dc:r.dc+kx,y:r.y+ky};if(fits(this.g,p)){this.piece=p;this.lockT=0;return}}}
+  dropPos(){return settle(this.g,this.piece)}
+  hardDrop(){if(this.state!=='play')return;const p=this.dropPos();this.score+=(p.y-this.piece.y);this.lock()}
+  lock(){const from=this.piece,p=settle(this.g,from);place(this.g,p,PID++,from);this.piece=null;physics(this.g);this.chain=0;this.attack=0;this.state='settle'}
+  update(dt){
+    const still=this.animate(dt);
+    this.popups=this.popups.filter(p=>(p.t+=dt)<1100);
+    switch(this.state){
+      case 'spawn':this.spawn();break;
+      case 'gwait':if(still)this.state='spawn';break;
+      case 'play':{
+        if(this.cpu)this.cpuStep(dt);
+        if(this.state!=='play')break;
+        const down={...this.piece,y:this.piece.y+2};
+        if(!fits(this.g,down)){this.lockT+=dt;if(this.lockT>450)this.lock()}
+        else{this.lockT=0;this.fallT+=dt;const iv=this.soft?45:game.speed;if(this.fallT>=iv){this.fallT=0;this.piece=down;if(this.soft)this.score+=1}}
+        break}
+      case 'settle':
+        if(still){const r=findClear(this.g);
+          if(r){this.chain++;this.maxChain=Math.max(this.maxChain,this.chain);this.flash=r.list;this.t=0;this.state='flash';
+            this.score+=r.removed*10*this.chain+(r.groups-1)*50;
+            this.attack+=Math.max(1,Math.floor((r.removed-4)/2))+(this.chain-1)*3+(r.groups-1)*2;
+            this.popups.push({txt:this.chain>=2?this.chain+'れんさ!':r.removed+'こ消し',t:0,small:this.chain<2});
+          }else this.endResolve()}
+        break;
+      case 'flash':this.t+=dt;if(this.t>380){for(const [dc,y] of this.flash)this.g[y][dc]=null;this.flash=null;physics(this.g);this.state='settle'}break;
+    }
+  }
+  endResolve(){
+    let a=this.attack;
+    if(a>0){const c=Math.min(a,this.pending);this.pending-=c;a-=c;if(a>0){game.other(this).pending+=a;this.popups.push({txt:'じゃま玉 '+a+' →',t:0,small:true,low:true})}}
+    this.attack=0;this.chain=0;this.state='spawn';
+  }
+  // ---- CPU ----
+  makePlan(){
+    const d=DIFF[game.diff];let best=null;let s=this.piece;
+    for(let r=0;r<6;r++){
+      for(let k=-8;k<=8;k++){
+        let p={...s,dc:s.dc+2*k};if(!fits(this.g,p))continue;
+        p=settle(this.g,p);
+        const v=evaluate(this.g,p)+Math.random()*d.noise;
+        if(!best||v>best.v)best={v,r,dc:s.dc+2*k};
+      }
+      s=rot(s);
+    }
+    this.plan=best||{r:0,dc:this.piece.dc};this.cpuT=0;
+  }
+  cpuStep(dt){
+    this.cpuT+=dt;if(this.cpuT<DIFF[game.diff].delay)return;this.cpuT=0;
+    const pl=this.plan;
+    if(pl.r>0){this.rotate();pl.r--;return}
+    if(this.piece.dc<pl.dc-1){if(!this.move(1))this.hardDrop();return}
+    if(this.piece.dc>pl.dc+1){if(!this.move(-1))this.hardDrop();return}
+    this.hardDrop();
+  }
+}
+function evaluate(g0,p){
+  const g=g0.map(r=>r.map(b=>b?{c:b.c,pid:b.pid}:null));
+  place(g,p,-1);physics(g);
+  let chain=0,removed=0,r;
+  while((r=findClear(g))){chain++;removed+=r.removed;for(const [dc,y] of r.list)g[y][dc]=null;physics(g)}
+  let v=removed*8+chain*chain*45,adj=0,top=H;
+  for(let y=0;y<H;y++)for(let dc=0;dc<2*W;dc++){const b=g[y][dc];if(!b)continue;top=Math.min(top,y);
+    if(b.c!==JUNK)for(const [ax,ay] of [[2,0],[1,1],[-1,1]]){const nx=dc+ax,ny=y+ay;if(valid(nx,ny)&&g[ny][nx]&&g[ny][nx].c===b.c)adj++}}
+  v+=adj*5-(H-top)*3;
+  for(let y=0;y<4;y++)for(let dc=5;dc<=11;dc++)if(valid(dc,y)&&g[y][dc])v-=300;
+  return v;
+}
+
+// ---- Game ----
+const game={diff:'normal',speed:900,elapsed:0,running:false,paused:false,
+  p:new Field(false),c:new Field(true),
+  other(f){return f===this.p?this.c:this.p},
+  start(diff){this.diff=diff;this.p.reset();this.c.reset();this.elapsed=0;this.running=true;this.paused=false;hideOverlay()},
+  onDead(f){this.running=false;setTimeout(()=>showEnd(f===this.c),600)}
+};
+
+// ---- Rendering ----
+const pc=document.getElementById('pc'),cc=document.getElementById('cc'),nc=document.getElementById('nc');
+const dpr=Math.min(window.devicePixelRatio||1,3);
+const FW=W+0.5,FH=(H-1)*R+1;
+const sizes={p:30,c:14,n:20};
+function fit(cv,wrap,cols,rows,key,maxCell){
+  const w=wrap.clientWidth,h=wrap.clientHeight||w*rows/cols;
+  const cell=Math.max(6,Math.min(w/cols,h/rows,maxCell||999));
+  sizes[key]=cell;const cw=Math.floor(cell*cols),ch=Math.floor(cell*rows);
+  cv.style.width=cw+'px';cv.style.height=ch+'px';cv.width=Math.round(cw*dpr);cv.height=Math.round(ch*dpr);
+}
+function layout(){
+  fit(pc,document.getElementById('pwrap'),FW,FH,'p');
+  const nw=document.getElementById('nwrap');fit(nc,{clientWidth:nw.clientWidth-12,clientHeight:0},2,1+R,'n',Math.floor(sizes.p*0.9));
+  fit(cc,document.getElementById('cwrap'),FW,FH,'c');
+}
+new ResizeObserver(layout).observe(document.getElementById('arena'));
+
+const GLYPH={1:'dot',2:'tri',3:'sq',4:'dia',5:'plus'};
+function ball(ctx,cx,cy,r,c,alpha){
+  ctx.save();ctx.globalAlpha=alpha??1;
+  if(c===JUNK){
+    const g=ctx.createRadialGradient(cx-r*.35,cy-r*.4,r*.1,cx,cy,r);g.addColorStop(0,'#ffffff');g.addColorStop(.6,'#c9d6d8');g.addColorStop(1,'#7e9296');
+    ctx.fillStyle=g;ctx.beginPath();ctx.arc(cx,cy,r,0,7);ctx.fill();
+    ctx.fillStyle='rgba(70,95,100,.45)';for(const [a,b] of [[-.3,.2],[.25,-.1],[.1,.35],[-.05,-.35]]){ctx.beginPath();ctx.arc(cx+a*r,cy+b*r,r*.09,0,7);ctx.fill()}
+  }else{
+    const [l,m,d]=COLORS[c];
+    const g=ctx.createRadialGradient(cx-r*.35,cy-r*.4,r*.1,cx,cy,r*1.05);g.addColorStop(0,l);g.addColorStop(.45,m);g.addColorStop(1,d);
+    ctx.fillStyle=g;ctx.beginPath();ctx.arc(cx,cy,r,0,7);ctx.fill();
+    if(r>7){ctx.fillStyle='rgba(255,255,255,.55)';const k=r*.24,oy=cy+r*.12;ctx.beginPath();
+      const t=GLYPH[c];
+      if(t==='dot')ctx.arc(cx,oy,k*.8,0,7);
+      else if(t==='tri'){ctx.moveTo(cx,oy-k);ctx.lineTo(cx+k,oy+k*.8);ctx.lineTo(cx-k,oy+k*.8)}
+      else if(t==='sq')ctx.rect(cx-k*.75,oy-k*.75,k*1.5,k*1.5);
+      else if(t==='dia'){ctx.moveTo(cx,oy-k);ctx.lineTo(cx+k,oy);ctx.lineTo(cx,oy+k);ctx.lineTo(cx-k,oy)}
+      else{ctx.rect(cx-k,oy-k*.3,k*2,k*.6);ctx.rect(cx-k*.3,oy-k,k*.6,k*2)}
+      ctx.fill()}
+  }
+  ctx.fillStyle='rgba(255,255,255,.75)';ctx.beginPath();ctx.ellipse(cx-r*.38,cy-r*.42,r*.26,r*.15,-.6,0,7);ctx.fill();
+  ctx.restore();
+}
+function rr(ctx,x,y,w,h,r){ctx.beginPath();if(ctx.roundRect)ctx.roundRect(x,y,w,h,r);else ctx.rect(x,y,w,h)}
+const PX=(dc,cell)=>(dc/2+.5)*cell, PY=(y,cell)=>(y*R+.5)*cell;
+function link(ctx,a,b,cell){ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);ctx.stroke()}
+function drawField(cv,f,cell,mine,now){
+  const ctx=cv.getContext('2d');ctx.setTransform(dpr,0,0,dpr,0,0);
+  const w=cv.width/dpr,h=cv.height/dpr;ctx.clearRect(0,0,w,h);
+  const bg=ctx.createLinearGradient(0,0,w,h);bg.addColorStop(0,'#2a6168');bg.addColorStop(1,'#163c40');
+  ctx.fillStyle=bg;rr(ctx,0,0,w,h,Math.min(16,cell*.5));ctx.fill();
+  ctx.save();rr(ctx,0,0,w,h,Math.min(16,cell*.5));ctx.clip();
+  ctx.fillStyle='rgba(255,111,94,.15)';ctx.fillRect(0,0,w,(R+1)*cell);
+  // faint honeycomb sockets
+  ctx.fillStyle='rgba(255,255,255,.045)';
+  for(let y=0;y<H;y++)for(let dc=0;dc<2*W;dc++)if(valid(dc,y)){ctx.beginPath();ctx.arc(PX(dc,cell),PY(y,cell),cell*.12,0,7);ctx.fill()}
+  // spawn marks
+  ctx.strokeStyle='rgba(255,111,94,.6)';ctx.lineWidth=Math.max(1,cell*.06);
+  for(const [dc,y] of pcells({...SPAWN,c:[1,1,1]})){const cx=PX(dc,cell),cy=PY(y,cell),k=cell*.14;ctx.beginPath();ctx.moveTo(cx-k,cy-k);ctx.lineTo(cx+k,cy+k);ctx.moveTo(cx+k,cy-k);ctx.lineTo(cx-k,cy+k);ctx.stroke()}
+  const r=cell*.46;
+  const fl=new Set((f.flash||[]).map(([dc,y])=>y*64+dc));
+  // trio links
+  ctx.strokeStyle='rgba(255,255,255,.3)';ctx.lineWidth=cell*.2;ctx.lineCap='round';
+  for(let y=0;y<H;y++)for(let dc=0;dc<2*W;dc++){const b=f.g[y][dc];if(!b||b.c===JUNK)continue;
+    for(const [ax,ay] of [[2,0],[1,1],[-1,1]]){const nx=dc+ax,ny=y+ay;if(!valid(nx,ny))continue;const o=f.g[ny][nx];
+      if(o&&o.pid===b.pid)link(ctx,[PX(b.vx,cell),PY(b.vy,cell)],[PX(o.vx,cell),PY(o.vy,cell)])}}
+  for(let y=0;y<H;y++)for(let dc=0;dc<2*W;dc++){const b=f.g[y][dc];if(!b)continue;
+    let a=1,rad=r;if(fl.has(y*64+dc)){const k=f.t/380;a=1-k*.8;rad=r*(1+k*.35)*(Math.sin(now/40)>0?1:.9)}
+    ball(ctx,PX(b.vx,cell),PY(b.vy,cell),rad,b.c,a)}
+  if(f.piece&&f.state==='play'){
+    if(mine){ctx.strokeStyle='rgba(255,255,255,.35)';ctx.lineWidth=Math.max(1.5,cell*.06);
+      for(const [dc,y] of pcells(f.dropPos())){ctx.beginPath();ctx.arc(PX(dc,cell),PY(y,cell),r*.86,0,7);ctx.stroke()}}
+    const pts=pcells(f.piece).map(([dc,y,c])=>[PX(dc,cell),PY(y,cell),c]);
+    ctx.strokeStyle='rgba(255,255,255,.3)';ctx.lineWidth=cell*.2;
+    for(let i=0;i<3;i++)link(ctx,pts[i],pts[(i+1)%3]);
+    for(const [x,y,c] of pts)ball(ctx,x,y,r,c);
+  }
+  if(f.pending>0){const n=Math.min(f.pending,16);const rr2=cell*.16;
+    ctx.fillStyle='rgba(20,53,56,.6)';ctx.fillRect(0,0,w,cell*.44);
+    for(let i=0;i<Math.min(n,Math.floor((w-rr2)/(rr2*2.6)));i++)ball(ctx,rr2*1.4+i*rr2*2.6,cell*.22,rr2,JUNK);
+  }
+  for(const p of f.popups){const k=p.t/1100;ctx.globalAlpha=1-k;ctx.fillStyle='#fff';
+    ctx.font=`${p.small?cell*.48:cell*.85}px "Dela Gothic One",sans-serif`;ctx.textAlign='center';
+    ctx.strokeStyle='rgba(20,53,56,.85)';ctx.lineWidth=cell*.12;const y=h*(p.low?.62:.45)-k*cell;
+    ctx.strokeText(p.txt,w/2,y);ctx.fillText(p.txt,w/2,y);ctx.globalAlpha=1}
+  if(f.state==='dead'){ctx.fillStyle='rgba(10,30,32,.6)';ctx.fillRect(0,0,w,h)}
+  ctx.restore();
+}
+function drawNext(){
+  const ctx=nc.getContext('2d'),cell=sizes.n;ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,nc.width,nc.height);
+  const c=game.p.next.c,pts=[[cell,cell*.5,c[0]],[cell*1.5,cell*(.5+R),c[1]],[cell*.5,cell*(.5+R),c[2]]];
+  ctx.strokeStyle='rgba(255,255,255,.3)';ctx.lineWidth=cell*.2;ctx.lineCap='round';
+  for(let i=0;i<3;i++){ctx.beginPath();ctx.moveTo(pts[i][0],pts[i][1]);ctx.lineTo(pts[(i+1)%3][0],pts[(i+1)%3][1]);ctx.stroke()}
+  for(const [x,y,cc] of pts)ball(ctx,x,y,cell*.46,cc);
+}
+const $score=document.getElementById('score'),$maxc=document.getElementById('maxc');
+
+let last=performance.now();
+function frame(now){
+  const dt=Math.min(50,now-last);last=now;
+  if(game.running&&!game.paused){
+    game.elapsed+=dt;game.speed=Math.max(220,900-game.elapsed/1000*6);
+    game.p.update(dt);if(game.running)game.c.update(dt);
+  }
+  drawField(pc,game.p,sizes.p,true,now);drawField(cc,game.c,sizes.c,false,now);drawNext();
+  $score.textContent=game.p.score.toLocaleString();$maxc.textContent=game.p.maxChain;
+  requestAnimationFrame(frame);
+}
+
+// ---- Input ----
+const act=fn=>{if(game.running&&!game.paused)fn()};
+function holdBtn(id,fn,repeat){
+  const b=document.getElementById(id);let t1,t2;
+  const stop=()=>{b.classList.remove('on');clearTimeout(t1);clearInterval(t2);if(id==='bD')game.p.soft=false};
+  b.addEventListener('pointerdown',e=>{e.preventDefault();try{b.setPointerCapture(e.pointerId)}catch(_){}b.classList.add('on');
+    try{navigator.vibrate&&navigator.vibrate(8)}catch(_){}
+    if(id==='bD'){game.p.soft=true;return}
+    act(fn);if(repeat){t1=setTimeout(()=>{t2=setInterval(()=>act(fn),85)},260)}});
+  ['pointerup','pointercancel','lostpointercapture'].forEach(ev=>b.addEventListener(ev,stop));
+  b.addEventListener('touchstart',e=>e.preventDefault(),{passive:false});
+  b.addEventListener('contextmenu',e=>e.preventDefault());
+}
+holdBtn('bL',()=>game.p.move(-1),true);
+holdBtn('bR',()=>game.p.move(1),true);
+holdBtn('bD',null,false);
+holdBtn('bRot',()=>game.p.rotate(),false);
+holdBtn('bH',()=>game.p.hardDrop(),false);
+
+// swipe on the well: tap = rotate, drag sideways = move, flick down = drop
+let sw=null;
+pc.addEventListener('pointerdown',e=>{sw={x:e.clientX,y:e.clientY,lx:e.clientX,t:performance.now(),moved:false};try{pc.setPointerCapture(e.pointerId)}catch(_){}});
+pc.addEventListener('pointermove',e=>{if(!sw)return;const step=sizes.p*.8;
+  while(e.clientX-sw.lx>step){act(()=>game.p.move(1));sw.lx+=step;sw.moved=true}
+  while(sw.lx-e.clientX>step){act(()=>game.p.move(-1));sw.lx-=step;sw.moved=true}});
+pc.addEventListener('pointerup',e=>{if(!sw)return;const dx=e.clientX-sw.x,dy=e.clientY-sw.y,dtm=performance.now()-sw.t;
+  if(dy>sizes.p*1.8&&Math.abs(dy)>Math.abs(dx))act(()=>game.p.hardDrop());
+  else if(!sw.moved&&Math.abs(dx)<10&&Math.abs(dy)<10&&dtm<350)act(()=>game.p.rotate());
+  sw=null});
+pc.addEventListener('pointercancel',()=>sw=null);
+
+addEventListener('keydown',e=>{
+  const k=e.key;
+  if(k==='ArrowLeft')act(()=>game.p.move(-1));
+  else if(k==='ArrowRight')act(()=>game.p.move(1));
+  else if(k==='ArrowUp'||k==='x'||k==='z')act(()=>game.p.rotate());
+  else if(k===' '){e.preventDefault();act(()=>game.p.hardDrop())}
+  else if(k==='ArrowDown')game.p.soft=true;
+  else if(k==='p'||k==='Escape')togglePause();
+});
+addEventListener('keyup',e=>{if(e.key==='ArrowDown')game.p.soft=false});
+
+// ---- Overlay ----
+const overlay=document.getElementById('overlay'),card=document.getElementById('card');
+function hideOverlay(){overlay.hidden=true}
+function diffButtons(){return `<div class="choices">${Object.entries(DIFF).map(([k,d])=>`<button class="choice${k===game.diff?' main':''}" data-d="${k}">${d.name}</button>`).join('')}</div>`}
+function bindChoices(){card.querySelectorAll('[data-d]').forEach(b=>b.addEventListener('click',()=>game.start(b.dataset.d)))}
+function showStart(){
+  card.innerHTML=`<h2>ビー玉<span>トリオ</span></h2>
+  <p>三角の3つ組ビー玉を蜂の巣状に積んで、CPUと対戦する落ちものパズル。</p>
+  <ul>
+    <li>支えのない玉は、すき間へ<b>転がり落ちる</b></li>
+    <li>同じ色を<b>6つ以上</b>つなげると消える</li>
+    <li>そのとき、消える玉と<b>線でつながった組の玉</b>も、色に関係なく一緒に消える</li>
+    <li>消すと相手に<b>じゃま玉</b>(白)が降る。じゃま玉は隣で玉が消えると一緒に消える</li>
+    <li>上の×印がふさがったら負け</li>
+  </ul>
+  <p style="font-size:.78rem;opacity:.8">操作:ボタン、またはフィールドを<b>タップで回転</b>・<b>左右になぞって移動</b>・<b>下にはらって落とす</b></p>
+  <p style="font-weight:800">CPUの強さを選んでスタート</p>${diffButtons()}`;
+  bindChoices();overlay.hidden=false;
+}
+function showEnd(win){
+  card.innerHTML=`<h2>${win?'<span>かち!</span>':'まけ…'}</h2>
+  <p>スコア <b>${game.p.score.toLocaleString()}</b> ・ 最大 <b>${game.p.maxChain}</b> れんさ</p>
+  <p style="font-weight:800">もう一回(強さを選ぶ)</p>${diffButtons()}`;
+  bindChoices();overlay.hidden=false;
+}
+function togglePause(){
+  if(!game.running)return;game.paused=!game.paused;
+  if(game.paused){card.innerHTML=`<h2>一時停止</h2><button class="choice main" id="resume">つづける</button><button class="choice" id="quit">やめてタイトルへ</button>`;
+    overlay.hidden=false;
+    document.getElementById('resume').onclick=togglePause;
+    document.getElementById('quit').onclick=()=>{game.running=false;game.paused=false;showStart()};
+  }else hideOverlay();
+}
+document.getElementById('pauseBtn').addEventListener('click',togglePause);
+document.addEventListener('visibilitychange',()=>{if(document.hidden&&game.running&&!game.paused)togglePause()});
+
+layout();showStart();requestAnimationFrame(frame);
+})();
+</script>
+
+</body></html>
