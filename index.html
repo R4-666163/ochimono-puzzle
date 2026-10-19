@@ -124,10 +124,10 @@ function settle(g,p){
 // a trio whose balls rolled apart is no longer one trio
 function splitPids(g){
   const seen=new Set(),used=new Set();
-  for(let y=0;y<H;y++)for(let dc=0;dc<2*W;dc++){const b=g[y][dc];if(!b||b.c===JUNK||seen.has(b))continue;
+  for(let y=0;y<H;y++)for(let dc=0;dc<2*W;dc++){const b=g[y][dc];if(!b||b.junk||seen.has(b))continue;
     const comp=[b],st=[[dc,y]];seen.add(b);
     while(st.length){const [x,yy]=st.pop();for(const [ax,ay] of NB){const nx=x+ax,ny=yy+ay;if(!valid(nx,ny))continue;const o=g[ny][nx];
-      if(o&&!seen.has(o)&&o.pid===b.pid&&o.c!==JUNK){seen.add(o);comp.push(o);st.push([nx,ny])}}}
+      if(o&&!seen.has(o)&&o.pid===b.pid&&!o.junk){seen.add(o);comp.push(o);st.push([nx,ny])}}}
     if(used.has(b.pid)){const np=PID++;comp.forEach(o=>o.pid=np)}else used.add(b.pid);
   }
 }
@@ -164,7 +164,7 @@ function shapeOf(g,grp,c){
   for(const sh of SHAPES){
     const t=sh.cells,ox=s[0][0]-t[0][0],oy=s[0][1]-t[0][1];
     if(!t.every(([x,y],i)=>s[i][0]===x+ox&&s[i][1]===y+oy))continue;
-    if(sh.center){const m=valid(ox,oy)&&g[oy][ox];if(!m||m.c===JUNK||m.c===c)continue}
+    if(sh.center){const m=valid(ox,oy)&&g[oy][ox];if(!m||m.c===c)continue}
     return sh;
   }
   return null;
@@ -173,7 +173,7 @@ function findClear(g){
   const seen=new Set(),hit=new Set(),shapes=[];let groups=0;
   const key=(dc,y)=>y*64+dc;
   for(let y=0;y<H;y++)for(let dc=0;dc<2*W;dc++){
-    const b=g[y][dc];if(!b||b.c===JUNK||seen.has(key(dc,y)))continue;
+    const b=g[y][dc];if(!b||seen.has(key(dc,y)))continue;
     const st=[[dc,y]],grp=[];seen.add(key(dc,y));
     while(st.length){const [x,yy]=st.pop();grp.push([x,yy]);
       for(const [ax,ay] of NB){const nx=x+ax,ny=yy+ay;
@@ -183,10 +183,10 @@ function findClear(g){
   if(!groups)return null;
   // whole trios go with them, whatever their colors
   const pids=new Set();for(const k of hit){const y=Math.floor(k/64),dc=k%64;pids.add(g[y][dc].pid)}
-  for(let y=0;y<H;y++)for(let dc=0;dc<2*W;dc++){const b=g[y][dc];if(b&&b.c!==JUNK&&pids.has(b.pid))hit.add(key(dc,y))}
+  for(let y=0;y<H;y++)for(let dc=0;dc<2*W;dc++){const b=g[y][dc];if(b&&!b.junk&&pids.has(b.pid))hit.add(key(dc,y))}
   // junk next to anything removed breaks too
   for(const k of [...hit]){const y=Math.floor(k/64),dc=k%64;
-    for(const [ax,ay] of NB){const nx=dc+ax,ny=y+ay;if(valid(nx,ny)&&g[ny][nx]&&g[ny][nx].c===JUNK)hit.add(key(nx,ny))}}
+    for(const [ax,ay] of NB){const nx=dc+ax,ny=y+ay;if(valid(nx,ny)&&g[ny][nx]&&g[ny][nx].junk)hit.add(key(nx,ny))}}
   const list=[...hit].map(k=>[k%64,Math.floor(k/64)]);
   return {list,removed:list.length,groups,shapes};
 }
@@ -206,7 +206,7 @@ class Field{
     const n=Math.min(this.pending,8);this.pending-=n;
     const spots=[];for(let y=0;y<3;y++)for(let dc=0;dc<2*W;dc++)if(valid(dc,y)&&!this.g[y][dc])spots.push([dc,y]);
     spots.sort(()=>Math.random()-.5);
-    for(const [dc,y] of spots.slice(0,n))this.g[y][dc]={c:JUNK,pid:PID++,vx:dc,vy:y-4};
+    for(const [dc,y] of spots.slice(0,n))this.g[y][dc]={c:1+rnd(NCOL),junk:true,pid:PID++,vx:dc,vy:y-4};
     physics(this.g);
   }
   animate(dt){
@@ -277,14 +277,14 @@ class Field{
   }
 }
 function evaluate(g0,p){
-  const g=g0.map(r=>r.map(b=>b?{c:b.c,pid:b.pid}:null));
+  const g=g0.map(r=>r.map(b=>b?{c:b.c,pid:b.pid,junk:b.junk}:null));
   place(g,p,-1);physics(g);
   let chain=0,removed=0,r;
   let atk=0;
   while((r=findClear(g))){chain++;removed+=r.removed;for(const sh of r.shapes)atk+=sh.atk+(chain-1)*2;for(const [dc,y] of r.list)g[y][dc]=null;physics(g)}
   let v=removed*8+chain*chain*45+atk*70,adj=0,top=H;
   for(let y=0;y<H;y++)for(let dc=0;dc<2*W;dc++){const b=g[y][dc];if(!b)continue;top=Math.min(top,y);
-    if(b.c!==JUNK)for(const [ax,ay] of [[2,0],[1,1],[-1,1]]){const nx=dc+ax,ny=y+ay;if(valid(nx,ny)&&g[ny][nx]&&g[ny][nx].c===b.c)adj++}}
+    for(const [ax,ay] of [[2,0],[1,1],[-1,1]]){const nx=dc+ax,ny=y+ay;if(valid(nx,ny)&&g[ny][nx]&&g[ny][nx].c===b.c)adj++}}
   v+=adj*5-(H-top)*3;
   for(let y=0;y<4;y++)for(let dc=5;dc<=11;dc++)if(valid(dc,y)&&g[y][dc])v-=300;
   return v;
@@ -317,7 +317,7 @@ function layout(){
 new ResizeObserver(layout).observe(document.getElementById('arena'));
 
 const GLYPH={1:'dot',2:'tri',3:'sq',4:'dia',5:'plus'};
-function ball(ctx,cx,cy,r,c,alpha){
+function ball(ctx,cx,cy,r,c,alpha,junk){
   ctx.save();ctx.globalAlpha=alpha??1;
   if(c===JUNK){
     const g=ctx.createRadialGradient(cx-r*.35,cy-r*.4,r*.1,cx,cy,r);g.addColorStop(0,'#ffffff');g.addColorStop(.6,'#c9d6d8');g.addColorStop(1,'#7e9296');
@@ -335,6 +335,12 @@ function ball(ctx,cx,cy,r,c,alpha){
       else if(t==='dia'){ctx.moveTo(cx,oy-k);ctx.lineTo(cx+k,oy);ctx.lineTo(cx,oy+k);ctx.lineTo(cx-k,oy)}
       else{ctx.rect(cx-k,oy-k*.3,k*2,k*.6);ctx.rect(cx-k*.3,oy-k,k*.6,k*2)}
       ctx.fill()}
+    // colored junk: frosted, speckled stone with a white rim
+    if(junk){
+      ctx.fillStyle='rgba(235,245,245,.35)';ctx.beginPath();ctx.arc(cx,cy,r,0,7);ctx.fill();
+      ctx.fillStyle='rgba(40,60,65,.4)';for(const [a,b] of [[-.3,.2],[.3,-.15],[.15,.4],[-.1,-.4],[.45,.25]]){ctx.beginPath();ctx.arc(cx+a*r,cy+b*r,r*.08,0,7);ctx.fill()}
+      ctx.strokeStyle='rgba(255,255,255,.9)';ctx.lineWidth=Math.max(1.2,r*.14);ctx.beginPath();ctx.arc(cx,cy,r*.9,0,7);ctx.stroke();
+    }
   }
   ctx.fillStyle='rgba(255,255,255,.75)';ctx.beginPath();ctx.ellipse(cx-r*.38,cy-r*.42,r*.26,r*.15,-.6,0,7);ctx.fill();
   ctx.restore();
@@ -359,12 +365,12 @@ function drawField(cv,f,cell,mine,now){
   const fl=new Set((f.flash||[]).map(([dc,y])=>y*64+dc));
   // trio links
   ctx.strokeStyle='rgba(255,255,255,.3)';ctx.lineWidth=cell*.2;ctx.lineCap='round';
-  for(let y=0;y<H;y++)for(let dc=0;dc<2*W;dc++){const b=f.g[y][dc];if(!b||b.c===JUNK)continue;
+  for(let y=0;y<H;y++)for(let dc=0;dc<2*W;dc++){const b=f.g[y][dc];if(!b||b.junk)continue;
     for(const [ax,ay] of [[2,0],[1,1],[-1,1]]){const nx=dc+ax,ny=y+ay;if(!valid(nx,ny))continue;const o=f.g[ny][nx];
       if(o&&o.pid===b.pid)link(ctx,[PX(b.vx,cell),PY(b.vy,cell)],[PX(o.vx,cell),PY(o.vy,cell)])}}
   for(let y=0;y<H;y++)for(let dc=0;dc<2*W;dc++){const b=f.g[y][dc];if(!b)continue;
     let a=1,rad=r;if(fl.has(y*64+dc)){const k=f.t/380;a=1-k*.8;rad=r*(1+k*.35)*(Math.sin(now/40)>0?1:.9)}
-    ball(ctx,PX(b.vx,cell),PY(b.vy,cell),rad,b.c,a)}
+    ball(ctx,PX(b.vx,cell),PY(b.vy,cell),rad,b.c,a,b.junk)}
   if(f.piece&&f.state==='play'){
     if(mine){ctx.strokeStyle='rgba(255,255,255,.35)';ctx.lineWidth=Math.max(1.5,cell*.06);
       for(const [dc,y] of pcells(f.dropPos())){ctx.beginPath();ctx.arc(PX(dc,cell),PY(y,cell),r*.86,0,7);ctx.stroke()}}
@@ -459,7 +465,8 @@ function showStart(){
     <li>支えのない玉は、すき間へ<b>転がり落ちる</b></li>
     <li>同じ色を<b>6つ以上</b>つなげると消える</li>
     <li>そのとき、消える玉と<b>線でつながった組の玉</b>も、色に関係なく一緒に消える</li>
-    <li>下の<b>決まった形</b>(ちょうど6つ)で消したときだけ、相手に<b>じゃま玉</b>(白)が降る。じゃま玉は隣で玉が消えると一緒に消える</li>
+    <li>下の<b>決まった形</b>(ちょうど6つ)で消したときだけ、相手に<b>じゃま玉</b>(白いふち)が降る</li>
+    <li>じゃま玉にも色があり、<b>同じ色の玉とつながって</b>消せる(形にも使える)。隣で玉が消えたときも一緒に消える</li>
     <li>上の×印がふさがったら負け</li>
   </ul>
   <div class="shapes">${ICONS.map((s,i)=>`<figure><canvas data-i="${i}"></canvas><figcaption>${s.label}</figcaption></figure>`).join('')}</div>
