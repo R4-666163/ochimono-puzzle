@@ -455,28 +455,40 @@ const game={diff:'normal',mode:'cpu',speed:900,elapsed:0,running:false,paused:fa
 
 // The same calls as claude.ai's named room (join/presence/peers/onPeers/leave), over a WebSocket
 // to this site's /ws/<name> relay (src/index.js), so anyone with the page can play online.
+// A dropped socket (phone changing network, app sent to the background) reconnects by itself and re-sends
+// this page's presence; meanwhile the last known peer list is kept, and connected() reports the gap.
 function wsRoom(){
   return {join:name=>new Promise((resolve,reject)=>{
-    const ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws/'+name);
-    let me=null,list=[],handlers=[];
+    const url=(location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws/'+name;
+    let ws=null,me=null,list=[],handlers=[],mine={},closed=false,joined=false,tries=0;
     const peers=()=>list.map(p=>({peer:p.peer,presence:p.presence||{},sameTab:p.peer===me,isMe:p.peer===me,kind:'viewer',guest:false,by:null}));
     const fire=()=>{const ps=peers();for(const h of handlers)h({peers:ps})};
-    const timer=setTimeout(()=>{try{ws.close()}catch(_){}reject(new Error('timeout'))},8000);
-    const api={name,peers,connected:()=>ws.readyState===1,
+    const timer=setTimeout(()=>{if(!joined){closed=true;try{ws.close()}catch(_){}reject(new Error('timeout'))}},8000);
+    const api={name,peers,connected:()=>!!ws&&ws.readyState===1,
       onPeers(h){handlers.push(h);setTimeout(()=>h({peers:peers()}),0);return()=>{handlers=handlers.filter(x=>x!==h)}},
-      async presence(patch){if(ws.readyState===1)ws.send(JSON.stringify({t:'p',patch}))},
-      async leave(){handlers=[];try{ws.close()}catch(_){}}};
-    ws.onmessage=e=>{let d;try{d=JSON.parse(e.data)}catch(_){return}
-      if(d.t==='hello'){me=d.peer;clearTimeout(timer);resolve(api)}
-      else if(d.t==='peers'&&Array.isArray(d.peers)){list=d.peers.filter(p=>p&&typeof p.peer==='string');fire()}};
-    ws.onerror=()=>{if(!me){clearTimeout(timer);reject(new Error('ws'))}};
-    ws.onclose=()=>{list=list.filter(p=>p.peer===me);fire()}; // cut off: everyone else is gone as far as we can tell
+      async presence(patch){for(const k in patch){if(patch[k]===null)delete mine[k];else mine[k]=patch[k]}
+        if(ws&&ws.readyState===1)ws.send(JSON.stringify({t:'p',patch}))},
+      async leave(){closed=true;handlers=[];try{ws.close()}catch(_){}}};
+    function connect(){
+      ws=new WebSocket(url);
+      ws.onmessage=e=>{let d;try{d=JSON.parse(e.data)}catch(_){return}
+        if(d.t==='hello'){me=d.peer;tries=0;
+          if(Object.keys(mine).length)ws.send(JSON.stringify({t:'p',patch:mine})); // back in the room as we were
+          if(!joined){joined=true;clearTimeout(timer);resolve(api)}}
+        else if(d.t==='peers'&&Array.isArray(d.peers)){list=d.peers.filter(p=>p&&typeof p.peer==='string');fire()}};
+      ws.onerror=()=>{if(!joined){closed=true;clearTimeout(timer);reject(new Error('ws'))}};
+      ws.onclose=()=>{if(closed||!joined)return;fire();setTimeout(()=>{if(!closed)connect()},Math.min(4000,500*2**tries++))};
+    }
+    connect();
   })};
 }
 
 // ---- Online: a 6-digit code names a room; each side runs its own well and shares it through room presence ----
 const BCH='0123456789abcde'; // 0 empty, 1-5 ball, a-e junk ball of that color
+const GRACE=8000,CUTOFF=15000;
 const net={room:null,r:null,role:null,code:'',phase:'idle',opp:null,me:null,ready:false,seq:0,log:[],seen:0,timer:null,unsub:null,lastB:'',
+  // a per-page id in presence: the opponent is found by it, so a reconnect (new peer label) still matches
+  tok:Math.random().toString(36).slice(2,12),oppTok:null,missSince:null,discSince:null,ticks:0,
   view:{g:mkG(),piece:null,state:'play',pending:0,popups:[],flash:null,flashTech:null,flashDur:1000,banner:null,t:0,fallT:0,soft:false},
   fx:null,fxSeq:0,fxSeen:0,
   // my 技 just fired: tell the other side so their view of my well glows too
@@ -493,50 +505,76 @@ const net={room:null,r:null,role:null,code:'',phase:'idle',opp:null,me:null,read
     const room=await this.getRoom();if(!room)throw new Error('noroom');
     this.leave();
     this.r=await room.join('bdt-'+code);
-    Object.assign(this,{code,role,phase:'lobby',opp:null,ready:false,seq:0,log:[],seen:0,lastB:'',round:1,wantAgain:false});
+    Object.assign(this,{code,role,phase:'lobby',opp:null,oppTok:null,missSince:null,discSince:null,ready:false,seq:0,log:[],seen:0,lastB:'',round:1,wantAgain:false});
     this.unsub=this.r.onPeers(()=>this.tick());
-    await this.r.presence({app:'bdt',role,st:'wait'});
+    await this.r.presence({app:'bdt',role,st:'wait',tok:this.tok});
   },
   leave(){clearInterval(this.timer);this.timer=null;if(this.unsub)this.unsub();this.unsub=null;
     if(this.r)this.r.leave().catch(()=>{});this.r=null;this.phase='idle';this.opp=null},
+  // leaving on purpose: say so first, so the other side ends at once instead of waiting out the grace period
+  quit(){const r=this.r;if(!r)return this.leave();r.presence({quit:true}).catch(()=>{});
+    clearInterval(this.timer);this.timer=null;if(this.unsub)this.unsub();this.unsub=null;this.r=null;this.phase='idle';this.opp=null;
+    setTimeout(()=>r.leave().catch(()=>{}),300)},
+  findOpp(others){return others.find(p=>this.oppTok?p.presence.tok===this.oppTok:p.peer===this.opp)},
+  // is the opponent really gone? a quit message: yes at once. Missing from the room: only after GRACE ms,
+  // and never while it is our own connection that has dropped
+  oppGone(o){
+    if(o&&o.presence.quit===true)return true;
+    if(o){this.missSince=null;this.view.waiting=false;return false}
+    if(typeof this.r.connected==='function'&&!this.r.connected()){this.missSince=null;return false}
+    if(this.missSince==null)this.missSince=Date.now();
+    this.view.waiting=true;
+    return Date.now()-this.missSince>GRACE;
+  },
+  // our own connection has been down too long to carry on
+  cutOff(){
+    if(typeof this.r.connected!=='function'||this.r.connected()){this.discSince=null;return false}
+    if(this.discSince==null)this.discSince=Date.now();
+    return Date.now()-this.discSince>CUTOFF;
+  },
   tick(){
     if(!this.r)return;
     const others=this.others();this.me=(this.r.peers().find(p=>p.sameTab)||{}).peer;
     if(this.phase==='lobby'){
       if(this.role==='host'){
         const g=others.find(p=>p.presence.role==='guest'&&p.presence.st==='ready');
-        if(g){this.opp=g.peer;this.r.presence({st:'go',vs:g.peer});this.begin()}
+        if(g){this.opp=g.peer;this.oppTok=g.presence.tok||null;this.r.presence({st:'go',vs:g.peer});this.begin()}
       }else{
         const h=others.find(p=>p.presence.role==='host');if(!h)return;
         const vs=h.presence.vs;
         if(vs&&vs!==this.me){this.leave();showJoin('この部屋はもう対戦中です')}
-        else if(vs===this.me&&h.presence.st!=='wait'){this.opp=h.peer;this.begin()}
+        else if(vs===this.me&&h.presence.st!=='wait'){this.opp=h.peer;this.oppTok=h.presence.tok||null;this.begin()}
         else if(h.presence.st==='wait'&&!this.ready){this.ready=true;this.r.presence({st:'ready'})}
       }
       return;
     }
-    const o=others.find(p=>p.peer===this.opp);
+    if(this.cutOff()){game.running=false;goHome('接続が切れました');return}
+    const o=this.findOpp(others);
     if(this.phase==='end'){
       // after a match: both pick もう一回 -> next round; the other leaving (やめる) sends everyone home
-      if(!o){goHome('');return}
+      if(this.oppGone(o)){goHome('');return}
+      if(!o)return;
       const s=o.presence,theirs=s.rm===this.round;
       if(this.wantAgain&&theirs){this.round++;this.begin();return}
       const note=document.getElementById('rmNote');if(note)note.textContent=theirs?'相手は「もう一回」を選んでいます':'';
       return;
     }
     if(this.phase!=='play')return;
-    if(!o){if(game.running)sfx.win();goHome(game.running?'相手が部屋を出たので、あなたの勝ちです':'相手が部屋を出ました');return}
+    if(this.oppGone(o)){if(game.running)sfx.win();goHome(game.running?'相手が部屋を出たので、あなたの勝ちです':'相手が部屋を出ました');return}
+    if(!o)return; // briefly missing: keep playing, their well shows 接続待ち
     this.apply(o.presence);
   },
   again(){this.wantAgain=true;this.r.presence({rm:this.round}).catch(()=>{});this.tick()},
   begin(){
     this.phase='play';this.wantAgain=false;this.seq=0;this.log=[];this.seen=0;this.fx=null;this.fxSeq=0;this.fxSeen=0;
-    Object.assign(this.view,{flash:null,flashTech:null,banner:null});
+    Object.assign(this.view,{flash:null,flashTech:null,banner:null,waiting:false});this.missSince=null;this.discSince=null;
     this.view.g=mkG();this.view.piece=null;this.view.state='play';this.view.pending=0;this.lastB='';
     game.running=false;game.p.reset(); // never let a finished match's board (or its "dead" flag) reach the new opponent
     card.innerHTML=`<h2 class="go"><span>ゲームスタート!</span></h2>`;overlay.hidden=false;
     setTimeout(()=>{if(this.phase==='play')game.startOnline()},1200);
-    clearInterval(this.timer);this.timer=setInterval(()=>this.send(),100);
+    // send my state 10 times a second, and re-check the room once a second even when nothing changes
+    // (so a missing opponent is noticed, and the grace period can run out)
+    clearInterval(this.timer);this.timer=setInterval(()=>{this.send();if(++this.ticks%10===0)this.tick()},100);
   },
   // what the other side sees: my board, falling trio, incoming junk count, and the 技 I've sent
   send(){
@@ -675,6 +713,9 @@ function drawField(cv,f,cell,mine,now){
     ctx.shadowColor='#ffd76a';ctx.shadowBlur=cell*.8;ctx.fillStyle='#fff6d8';ctx.strokeStyle='rgba(20,53,56,.9)';ctx.lineWidth=cell*.16;
     ctx.strokeText(f.banner.txt,w/2,h*.36);ctx.fillText(f.banner.txt,w/2,h*.36);ctx.restore()}
   if(f.state==='dead'){ctx.fillStyle='rgba(10,30,32,.6)';ctx.fillRect(0,0,w,h)}
+  // online: the opponent briefly dropped out of the room; we wait for them before calling it
+  if(f.waiting){ctx.fillStyle='rgba(10,30,32,.55)';ctx.fillRect(0,0,w,h);ctx.fillStyle='#fff';ctx.textAlign='center';
+    ctx.font=`${Math.max(10,cell*.9)}px "M PLUS Rounded 1c",sans-serif`;ctx.fillText('接続待ち…',w/2,h/2)}
   ctx.restore();
 }
 function drawNext(){
@@ -797,7 +838,7 @@ function showEnd(win,why){
   overlay.hidden=false;
 }
 function goHome(msg){
-  net.leave();game.running=false;game.mode='cpu';game.c=cpuField;setSideLabel();showStart();
+  net.quit();game.running=false;game.mode='cpu';game.c=cpuField;setSideLabel();showStart();
   if(msg)document.getElementById('onMsg').textContent=msg;
 }
 function setSideLabel(){const on=game.mode==='online',b=document.getElementById('pauseBtn');
