@@ -212,7 +212,7 @@ function findClear(g){
   // a 技 wipes every ball of its color off the field
   if(techColors.size)for(let y=0;y<H;y++)for(let dc=0;dc<2*W;dc++){const b=g[y][dc];if(b&&techColors.has(b.c))hit.add(key(dc,y))}
   const list=[...hit].map(k=>[k%64,Math.floor(k/64)]);
-  return {list,removed:list.length,groups,shapes};
+  return {list,removed:list.length,groups,shapes,tech:techColors};
 }
 
 // junk arrives as a chain of the same 技 shape and falls as one block.
@@ -252,14 +252,17 @@ function dropFormation(g,sh,n){
   cells=cells.map(([x,y,c])=>[x+sx,y,c]);
   const ok=o=>cells.every(([x,y])=>y+o<0||(y+o<H&&!g[y+o][x]));
   let oy=top;while(ok(oy+2))oy+=2;
-  cells.forEach(([x,y,c])=>{if(y+oy>=0)g[y+oy][x]={c,junk:true,pid:PID++,vx:x,vy:y+top,ly:y+oy}});
+  // it glows white while falling (wg); the lowest row sends out a ring of light where it lands
+  const floor=Math.max(...cells.filter(([,y])=>y+oy>=0).map(([,y])=>y+oy));
+  cells.forEach(([x,y,c])=>{if(y+oy>=0)g[y+oy][x]={c,junk:true,pid:PID++,vx:x,vy:y+top,ly:y+oy,wg:1,ring:y+oy===floor}});
 }
 
 class Field{
   constructor(cpu){this.cpu=cpu;this.reset()}
-  reset(){Object.assign(this,{g:mkG(),piece:null,next:randPiece(),state:'spawn',t:0,score:0,chain:0,maxChain:0,pending:0,queue:[],sent:[],fallT:0,lockT:0,flash:null,popups:[],soft:false,plan:null,cpuT:0,gDone:false})}
+  reset(){Object.assign(this,{g:mkG(),piece:null,next:randPiece(),state:'spawn',t:0,score:0,chain:0,maxChain:0,pending:0,queue:[],sent:[],fallT:0,lockT:0,flash:null,flashTech:null,flashDur:380,banner:null,rings:[],popups:[],soft:false,plan:null,cpuT:0,gDone:false})}
   spawn(){
-    if(this.pending>0&&!this.gDone){this.dropJunk();this.gDone=true;this.state='gwait';return}
+    // incoming junk: the top band flashes red for a moment first (state 'gwarn'), then it drops
+    if(this.pending>0&&!this.gDone){this.state='gwarn';this.t=0;return}
     this.gDone=false;
     this.piece=this.next;this.next=randPiece();
     if(!fits(this.g,this.piece)){this.state='dead';game.onDead(this);return}
@@ -274,7 +277,9 @@ class Field{
     const step=dt*0.012;let still=true;
     for(let y=0;y<H;y++)for(let dc=0;dc<2*W;dc++){const b=this.g[y][dc];if(!b)continue;
       // incoming junk: the whole block drops straight down at one steady speed, then settles
-      if(b.ly!=null){if(b.vy<b.ly){b.vy=Math.min(b.ly,b.vy+dt*JUNK_FALL);still=false;continue}b.ly=null}
+      if(b.ly!=null){if(b.vy<b.ly){b.vy=Math.min(b.ly,b.vy+dt*JUNK_FALL);still=false;continue}b.ly=null;
+        if(b.ring){this.rings.push({x:dc,y,t:0});b.ring=false}}
+      if(b.wg>0)b.wg=Math.max(0,b.wg-dt/600);
       const dx=(dc-b.vx)/2,dy=(y-b.vy)*R,d=Math.hypot(dx,dy);
       if(d<1e-3){b.vx=dc;b.vy=y;continue}
       still=false;const s=Math.min(1,step/d);b.vx+=(dc-b.vx)*s;b.vy+=(y-b.vy)*s}
@@ -289,9 +294,12 @@ class Field{
   update(dt){
     const still=this.animate(dt);
     this.popups=this.popups.filter(p=>(p.t+=dt)<1100);
+    if(this.banner&&(this.banner.t+=dt)>1200)this.banner=null;
+    this.rings=this.rings.filter(r=>(r.t+=dt)<450);
     switch(this.state){
       case 'spawn':this.spawn();break;
       // junk has landed: every group of 6+ it made clears right away, and a 技 it completed fires and attacks
+      case 'gwarn':this.t+=dt;if(this.t>900){this.dropJunk();this.gDone=true;this.state='gwait'}break;
       case 'gwait':if(still){for(const row of this.g)for(const b of row)if(b)b.fresh=true;this.chain=0;this.sent=[];this.state='settle'}break;
       case 'play':{
         if(this.cpu)this.cpuStep(dt);
@@ -305,13 +313,15 @@ class Field{
       case 'settle':
         if(still){const r=findClear(this.g);
           if(r){this.chain++;this.maxChain=Math.max(this.maxChain,this.chain);this.flash=r.list;this.t=0;this.state='flash';
+            // a 技: its colour glows gold, swells and fades (longer than a plain clear) under a glowing name banner
+            this.flashTech=r.tech.size?r.tech:null;this.flashDur=r.tech.size?1000:380;
             this.score+=r.removed*10*this.chain+(r.groups-1)*50;
             for(const sh of r.shapes)this.sent.push({sh,n:sh.atk});
             this.popups.push({txt:this.chain>=2?this.chain+'れんさ!':r.removed+'こ消し',t:0,small:this.chain<2});
-            if(r.shapes.length)this.popups.push({txt:[...new Set(r.shapes.map(s=>s.name))].join('・')+'!',t:0,small:true,hi:true});
+            if(r.shapes.length)this.banner={txt:[...new Set(r.shapes.map(s=>s.name))].join('・')+'!',t:0};
           }else this.endResolve()}
         break;
-      case 'flash':this.t+=dt;if(this.t>380){for(const [dc,y] of this.flash)this.g[y][dc]=null;this.flash=null;physics(this.g,true);this.state='settle'}break;
+      case 'flash':this.t+=dt;if(this.t>this.flashDur){for(const [dc,y] of this.flash)this.g[y][dc]=null;this.flash=null;physics(this.g,true);this.state='settle'}break;
     }
   }
   // no offsetting: everything made this turn goes straight to the other side
@@ -510,8 +520,12 @@ function layout(){
 const ro=new ResizeObserver(layout);for(const id of ['arena','pwrap','cwrap'])ro.observe(document.getElementById(id));
 
 const GLYPH={1:'dot',2:'tri',3:'sq',4:'dia',5:'plus'};
-function ball(ctx,cx,cy,r,c,alpha,junk){
+// glow: gold halo + warm tint (a 技 firing); wglow: white halo (junk falling in)
+function ball(ctx,cx,cy,r,c,alpha,junk,glow,wglow){
   ctx.save();ctx.globalAlpha=alpha??1;
+  for(const [k,rgb,span] of [[glow,'255,230,140',2.2],[wglow,'255,255,255',1.9]])if(k>0){
+    const h=ctx.createRadialGradient(cx,cy,r*.6,cx,cy,r*span);h.addColorStop(0,`rgba(${rgb},${.8*k})`);h.addColorStop(1,`rgba(${rgb},0)`);
+    ctx.fillStyle=h;ctx.beginPath();ctx.arc(cx,cy,r*span,0,7);ctx.fill()}
   if(c===JUNK){
     const g=ctx.createRadialGradient(cx-r*.35,cy-r*.4,r*.1,cx,cy,r);g.addColorStop(0,'#ffffff');g.addColorStop(.6,'#c9d6d8');g.addColorStop(1,'#7e9296');
     ctx.fillStyle=g;ctx.beginPath();ctx.arc(cx,cy,r,0,7);ctx.fill();
@@ -520,6 +534,7 @@ function ball(ctx,cx,cy,r,c,alpha,junk){
     const [l,m,d]=COLORS[c];
     const g=ctx.createRadialGradient(cx-r*.35,cy-r*.4,r*.1,cx,cy,r*1.05);g.addColorStop(0,l);g.addColorStop(.45,m);g.addColorStop(1,d);
     ctx.fillStyle=g;ctx.beginPath();ctx.arc(cx,cy,r,0,7);ctx.fill();
+    if(glow>0){ctx.fillStyle=`rgba(255,250,220,${.55*glow})`;ctx.beginPath();ctx.arc(cx,cy,r,0,7);ctx.fill()}
     if(r>7){ctx.fillStyle='rgba(255,255,255,.55)';const k=r*.24,oy=cy+r*.12;ctx.beginPath();
       const t=GLYPH[c];
       if(t==='dot')ctx.arc(cx,oy,k*.8,0,7);
@@ -543,7 +558,7 @@ function drawField(cv,f,cell,mine,now){
   const bg=ctx.createLinearGradient(0,0,w,h);bg.addColorStop(0,'#2a6168');bg.addColorStop(1,'#163c40');
   ctx.fillStyle=bg;rr(ctx,0,0,w,h,Math.min(16,cell*.5));ctx.fill();
   ctx.save();rr(ctx,0,0,w,h,Math.min(16,cell*.5));ctx.clip();
-  ctx.fillStyle='rgba(255,111,94,.15)';ctx.fillRect(0,0,w,(R+1)*cell);
+  ctx.fillStyle=f.state==='gwarn'?`rgba(255,80,60,${Math.sin(now/90)>0?.55:.25})`:'rgba(255,111,94,.15)';ctx.fillRect(0,0,w,(R+1)*cell);
   // faint honeycomb sockets
   ctx.fillStyle='rgba(255,255,255,.045)';
   for(let y=0;y<H;y++)for(let dc=0;dc<2*W;dc++)if(valid(dc,y)){ctx.beginPath();ctx.arc(PX(dc,cell),PY(y,cell),cell*.12,0,7);ctx.fill()}
@@ -558,8 +573,14 @@ function drawField(cv,f,cell,mine,now){
     for(const [ax,ay] of [[2,0],[1,1],[-1,1]]){const nx=dc+ax,ny=y+ay;if(!valid(nx,ny))continue;const o=f.g[ny][nx];
       if(o&&o.pid===b.pid)link(ctx,[PX(b.vx,cell),PY(b.vy,cell)],[PX(o.vx,cell),PY(o.vy,cell)])}}
   for(let y=0;y<H;y++)for(let dc=0;dc<2*W;dc++){const b=f.g[y][dc];if(!b)continue;
-    let a=1,rad=r;if(fl.has(y*64+dc)){const k=f.t/380;a=1-k*.8;rad=r*(1+k*.35)*(Math.sin(now/40)>0?1:.9)}
-    ball(ctx,PX(b.vx,cell),PY(b.vy,cell),rad,b.c,a,b.junk)}
+    let a=1,rad=r,gl=0;
+    if(fl.has(y*64+dc)){
+      if(f.flashTech&&f.flashTech.has(b.c)){
+        if(f.t<700)gl=.6+.4*Math.sin(f.t/60);else{const q=Math.min(1,(f.t-700)/300);gl=1-q;rad=r*(1+q*.4);a=1-q}
+      }else{const k=Math.min(1,f.t/380);a=1-k*.8;rad=r*(1+k*.35)*(Math.sin(now/40)>0?1:.9)}}
+    ball(ctx,PX(b.vx,cell),PY(b.vy,cell),rad,b.c,a,b.junk,gl,b.wg)}
+  for(const rg of f.rings||[]){const k=rg.t/450;ctx.strokeStyle=`rgba(255,255,255,${1-k})`;ctx.lineWidth=Math.max(1,cell*.1*(1-k)+1);
+    ctx.beginPath();ctx.arc(PX(rg.x,cell),PY(rg.y,cell),cell*(.5+k*.9),0,7);ctx.stroke()}
   if(f.piece&&f.state==='play'){
     if(mine){ctx.strokeStyle='rgba(255,255,255,.35)';ctx.lineWidth=Math.max(1.5,cell*.06);
       for(const [dc,y] of pcells(f.dropPos())){ctx.beginPath();ctx.arc(PX(dc,cell),PY(y,cell),r*.86,0,7);ctx.stroke()}}
@@ -579,6 +600,10 @@ function drawField(cv,f,cell,mine,now){
     ctx.font=`${p.small?cell*.48:cell*.85}px "Dela Gothic One",sans-serif`;ctx.textAlign='center';
     ctx.strokeStyle='rgba(20,53,56,.85)';ctx.lineWidth=cell*.12;const y=h*(p.low?.62:p.hi?.32:.45)-k*cell;
     ctx.strokeText(p.txt,w/2,y);ctx.fillText(p.txt,w/2,y);ctx.globalAlpha=1}
+  if(f.banner){const k=f.banner.t/1200;ctx.save();ctx.globalAlpha=k<.15?k/.15:1-Math.max(0,(k-.7)/.3);
+    ctx.font=`${cell*(1.05+.2*Math.sin(Math.min(1,k*4)*Math.PI/2))}px "Dela Gothic One",sans-serif`;ctx.textAlign='center';
+    ctx.shadowColor='#ffd76a';ctx.shadowBlur=cell*.8;ctx.fillStyle='#fff6d8';ctx.strokeStyle='rgba(20,53,56,.9)';ctx.lineWidth=cell*.16;
+    ctx.strokeText(f.banner.txt,w/2,h*.36);ctx.fillText(f.banner.txt,w/2,h*.36);ctx.restore()}
   if(f.state==='dead'){ctx.fillStyle='rgba(10,30,32,.6)';ctx.fillRect(0,0,w,h)}
   ctx.restore();
 }
