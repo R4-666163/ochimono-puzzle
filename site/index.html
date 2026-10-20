@@ -67,8 +67,9 @@ canvas{display:block;touch-action:none}
 .choices{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 .choice{border:2px solid var(--ink);background:transparent;color:var(--ink);border-radius:14px;padding:12px 4px;font-family:var(--body);font-weight:800;font-size:.95rem;cursor:pointer}
 .choice.main{background:var(--ink);color:#fff}
-/* phones: NEXT and the opponent's well move into a row above, so the player's well can use the full width */
-@media (max-width:600px){
+/* touch phones only: NEXT and the opponent's well move into a row above, so the player's well can use the
+   full width. A narrow window on a PC (e.g. claude.ai's side panel) keeps the side-column layout. */
+@media (max-width:600px) and (pointer:coarse){
   /* the row shrinks on short phones so the player's well never ends up smaller than before */
   #arena{--sideH:clamp(84px,18.5vh,150px);flex-direction:column;gap:8px}
   #side{order:-1;width:auto;max-width:none;flex:none;height:var(--sideH);flex-direction:row;align-items:stretch;gap:8px}
@@ -505,7 +506,8 @@ function layout(){
   const nw=document.getElementById('nwrap');fit(nc,{clientWidth:nw.clientWidth-12,clientHeight:0},2,1+R,'n',Math.floor(sizes.p*0.9));
   fit(cc,document.getElementById('cwrap'),FW,FH,'c');
 }
-new ResizeObserver(layout).observe(document.getElementById('arena'));
+// watch the wells' own boxes too: switching between the phone and PC layouts can keep #arena the same size
+const ro=new ResizeObserver(layout);for(const id of ['arena','pwrap','cwrap'])ro.observe(document.getElementById(id));
 
 const GLYPH={1:'dot',2:'tri',3:'sq',4:'dia',5:'plus'};
 function ball(ctx,cx,cy,r,c,alpha,junk){
