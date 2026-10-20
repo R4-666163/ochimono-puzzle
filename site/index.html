@@ -155,8 +155,9 @@ const sfx=(()=>{
     toggle(){on=!on;try{localStorage.setItem('bdt-sound',on?'on':'off')}catch(_){}if(on)wake();return on},
     // M5-1: a magnet snapping on, with one small bounce
     land:()=>play(t=>{grp('land');noise(t,{freq:2800,q:4,dur:.016,vol:.55});thump(t,{f:180,dur:.04,vol:.25});noise(t+.045,{freq:3200,q:5,dur:.01,vol:.2})}),
-    // M: a soft plucked string, a little higher each step of a chain
-    clear:chain=>play(t=>{grp('clear');pluck(t,392*Math.min(1.6,1+.12*(chain-1)))}),
+    // M: a soft plucked string, climbing a major pentatonic scale (ド レ ミ ソ ラ ド) each step of a chain,
+    // so every step stays in tune with the last
+    clear:chain=>play(t=>{grp('clear');pluck(t,392*Math.pow(2,[0,2,4,7,9,12][Math.min(chain,6)-1]/12))}),
     // A: sparkles while the 技 glows (0-0.7s), then a chord as the balls swell and vanish
     tech:()=>play(t=>{grp('tech');for(let i=0;i<11;i++)tone(t+i*.06,{f:1800*(1+(i%4)*.18),dur:.08,vol:.035});
       [523,659,784].forEach((f,i)=>tone(t+.7+i*.07,{f,type:'triangle',dur:.12,vol:.08}));[523,659,784,1047].forEach(f=>tone(t+.95,{f,type:'triangle',dur:.6,vol:.06}))}),
