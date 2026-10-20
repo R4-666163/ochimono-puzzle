@@ -315,6 +315,7 @@ class Field{
           if(r){this.chain++;this.maxChain=Math.max(this.maxChain,this.chain);this.flash=r.list;this.t=0;this.state='flash';
             // a 技: its colour glows gold, swells and fades (longer than a plain clear) under a glowing name banner
             this.flashTech=r.tech.size?r.tech:null;this.flashDur=r.tech.size?1000:380;
+            if(r.tech.size&&game.mode==='online'&&this===game.p)net.techFx(r.tech,[...new Set(r.shapes.map(s=>s.name))].join('・')+'!');
             this.score+=r.removed*10*this.chain+(r.groups-1)*50;
             for(const sh of r.shapes)this.sent.push({sh,n:sh.atk});
             this.popups.push({txt:this.chain>=2?this.chain+'れんさ!':r.removed+'こ消し',t:0,small:this.chain<2});
@@ -419,7 +420,12 @@ function wsRoom(){
 // ---- Online: a 6-digit code names a room; each side runs its own well and shares it through room presence ----
 const BCH='0123456789abcde'; // 0 empty, 1-5 ball, a-e junk ball of that color
 const net={room:null,r:null,role:null,code:'',phase:'idle',opp:null,me:null,ready:false,seq:0,log:[],seen:0,timer:null,unsub:null,lastB:'',
-  view:{g:mkG(),piece:null,state:'play',pending:0,popups:[],flash:null,t:0,fallT:0,soft:false},
+  view:{g:mkG(),piece:null,state:'play',pending:0,popups:[],flash:null,flashTech:null,flashDur:1000,banner:null,t:0,fallT:0,soft:false},
+  fx:null,fxSeq:0,fxSeen:0,
+  // my 技 just fired: tell the other side so their view of my well glows too
+  techFx(colors,name){this.fx={n:++this.fxSeq,c:[...colors],name};this.send()},
+  // advance the glow/banner on the opponent's well (it has no update loop of its own)
+  tickView(dt){const v=this.view;if(v.flash&&(v.t+=dt)>v.flashDur)v.flash=null;if(v.banner&&(v.banner.t+=dt)>1200)v.banner=null},
   // claude.ai's room when opened there; otherwise our own relay on the site that served this page
   async getRoom(){
     if(!this.room&&window.claude&&typeof claude.use==='function')this.room=await claude.use('room').catch(()=>null);
@@ -467,7 +473,8 @@ const net={room:null,r:null,role:null,code:'',phase:'idle',opp:null,me:null,read
   },
   again(){this.wantAgain=true;this.r.presence({rm:this.round}).catch(()=>{});this.tick()},
   begin(){
-    this.phase='play';this.wantAgain=false;this.seq=0;this.log=[];this.seen=0;
+    this.phase='play';this.wantAgain=false;this.seq=0;this.log=[];this.seen=0;this.fx=null;this.fxSeq=0;this.fxSeen=0;
+    Object.assign(this.view,{flash:null,flashTech:null,banner:null});
     this.view.g=mkG();this.view.piece=null;this.view.state='play';this.view.pending=0;this.lastB='';
     game.running=false;game.p.reset(); // never let a finished match's board (or its "dead" flag) reach the new opponent
     card.innerHTML=`<h2 class="go"><span>ゲームスタート!</span></h2>`;overlay.hidden=false;
@@ -479,7 +486,7 @@ const net={room:null,r:null,role:null,code:'',phase:'idle',opp:null,me:null,read
     if(!this.r)return;const p=game.p;let b='';
     for(let y=0;y<H;y++)for(let dc=0;dc<2*W;dc++)if(valid(dc,y)){const x=p.g[y][dc];b+=x?BCH[x.c+(x.junk?9:0)]:'0'}
     const pc=p.piece&&p.state==='play'?[p.piece.o,p.piece.dc,p.piece.y,...p.piece.c]:null;
-    this.r.presence({st:this.phase,r:this.round,b,pc,pd:p.pending,dead:p.state==='dead',atk:{s:this.seq,l:this.log}}).catch(()=>{});
+    this.r.presence({st:this.phase,r:this.round,b,pc,pd:p.pending,dead:p.state==='dead',atk:{s:this.seq,l:this.log},fx:this.fx}).catch(()=>{});
   },
   attack(sent){for(const {sh} of sent){this.log.push([++this.seq,SHAPES.indexOf(sh)]);if(this.log.length>12)this.log.shift()}this.send()},
   // the opponent's presence is untrusted: read only what parses, never trust counts it claims
@@ -496,6 +503,12 @@ const net={room:null,r:null,role:null,code:'',phase:'idle',opp:null,me:null,read
     if(s.atk&&Array.isArray(s.atk.l))for(const e of s.atk.l){
       if(!Array.isArray(e)||!Number.isInteger(e[0])||e[0]<=this.seen||!SHAPES[e[1]])continue;
       this.seen=e[0];const sh=SHAPES[e[1]];game.p.queue.push({sh,n:sh.atk});game.p.pending+=sh.atk}
+    // their 技 fired: make those colours on their well glow and show the name, as on their own screen
+    const fx=s.fx;
+    if(fx&&Number.isInteger(fx.n)&&fx.n>this.fxSeen&&Array.isArray(fx.c)){
+      this.fxSeen=fx.n;const cols=new Set(fx.c.filter(c=>Number.isInteger(c)&&c>=1&&c<=NCOL));
+      if(cols.size){const list=[];for(let y=0;y<H;y++)for(let dc=0;dc<2*W;dc++){const b=v.g[y][dc];if(b&&cols.has(b.c))list.push([dc,y])}
+        Object.assign(v,{flash:list,flashTech:cols,flashDur:1000,t:0,banner:typeof fx.name==='string'?{txt:fx.name.slice(0,24),t:0}:null})}}
     if(s.dead===true){v.state='dead';if(game.running){game.running=false;this.phase='end';this.send();setTimeout(()=>showEnd(true),600)}}
   }
 };
@@ -622,6 +635,7 @@ function frame(now){
   if(game.running&&!game.paused){
     game.elapsed+=dt; // fall speed stays at game.speed (900ms a row) for the whole match
     game.p.update(dt);if(game.running&&game.mode==='cpu')game.c.update(dt);
+    if(game.mode==='online')net.tickView(dt);
   }
   drawField(pc,game.p,sizes.p,true,now);drawField(cc,game.c,sizes.c,false,now);drawNext();
   $score.textContent=game.p.score.toLocaleString();$maxc.textContent=game.p.maxChain;
