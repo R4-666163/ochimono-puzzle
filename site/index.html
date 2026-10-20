@@ -26,7 +26,10 @@ h1{font-family:var(--display);font-weight:400;font-size:1.25rem;margin:0;letter-
 h1 span{color:var(--coral)}
 .stat{display:flex;flex-direction:column;align-items:flex-end;line-height:1.1}
 .stat b{font-family:var(--display);font-weight:400;font-size:1.05rem;font-variant-numeric:tabular-nums}
-.stat small{font-size:.62rem;letter-spacing:.08em;opacity:.7}
+.stat small{font-size:.62rem;letter-spacing:.02em;opacity:.7;white-space:nowrap}
+#sndBtn{width:38px;height:38px;flex:none;touch-action:manipulation;border-radius:50%;border:2px solid var(--ink);background:transparent;color:var(--ink);font-weight:800;font-size:1rem;cursor:pointer;position:relative;padding:0}
+#sndBtn[aria-pressed="false"]{opacity:.45}
+#sndBtn[aria-pressed="false"]::after{content:"";position:absolute;left:7px;right:7px;top:50%;height:2px;background:var(--ink);transform:rotate(-45deg)}
 #pauseBtn{width:44px;height:44px;flex:none;touch-action:manipulation;border-radius:50%;border:2px solid var(--ink);background:transparent;color:var(--ink);font-weight:800;font-size:.9rem;cursor:pointer}
 #arena{flex:1;min-height:0;display:flex;gap:10px}
 #pwrap{flex:1;min-width:0;display:flex;align-items:flex-start;justify-content:center}
@@ -86,6 +89,7 @@ canvas{display:block;touch-action:none}
     <h1>ビー玉<span>トリオ</span></h1>
     <div class="stat"><small>スコア</small><b id="score">0</b></div>
     <div class="stat"><small>最大れんさ</small><b id="maxc">0</b></div>
+    <button id="sndBtn" aria-label="効果音" aria-pressed="true">♪</button>
     <button id="pauseBtn" aria-label="一時停止">II</button>
   </header>
   <main id="arena">
@@ -117,6 +121,51 @@ const DIFF={easy:{name:'かんたん',delay:520,noise:70,build:0},normal:{name:'
 const NB=[[-2,0],[2,0],[-1,-1],[1,-1],[-1,1],[1,1]];
 const SPAWN={o:0,dc:8,y:0};
 const rnd=n=>Math.floor(Math.random()*n);
+
+// ---- Sound: every effect is synthesised here (no audio files). Soft voicing: pitched ~4 semitones
+// down, high end rolled off, gentle limiter; per-effect gains were measured so they sound equally loud ----
+const sfx=(()=>{
+  const P=0.79,V=0.72,GAIN={land:1.74,clear:0.84,tech:2.15,junkBell:0.816,junkLand:1.04};
+  let ac=null,bus=null,cur=null,on=true;
+  try{on=localStorage.getItem('bdt-sound')!=='off'}catch(_){}
+  const ctx=()=>{if(!ac){const C=window.AudioContext||window.webkitAudioContext;if(!C)return null;ac=new C();
+    const lp=ac.createBiquadFilter(),cmp=ac.createDynamicsCompressor(),g=ac.createGain();lp.type='lowpass';lp.Q.value=.5;lp.frequency.value=3200;
+    cmp.threshold.value=-20;cmp.ratio.value=4;g.gain.value=.9;lp.connect(cmp).connect(g).connect(ac.destination);bus=lp}return ac};
+  const grp=k=>{const g=ac.createGain();g.gain.value=GAIN[k];g.connect(bus);cur=g};
+  const tone=(t,{f,dur=.15,vol=.25,type='sine'})=>{const o=ac.createOscillator(),g=ac.createGain();o.type=type;o.frequency.setValueAtTime(f*P,t);
+    g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(vol*V,t+.012);g.gain.exponentialRampToValueAtTime(.001,t+dur*1.15);o.connect(g).connect(cur);o.start(t);o.stop(t+dur*1.2+.03)};
+  const noise=(t,{dur=.1,vol=.2,freq=2000,q=1})=>{const n=Math.max(1,ac.sampleRate*dur|0),b=ac.createBuffer(1,n,ac.sampleRate),d=b.getChannelData(0);
+    for(let i=0;i<n;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/n,3);const s=ac.createBufferSource(),f=ac.createBiquadFilter(),g=ac.createGain();
+    s.buffer=b;f.type='bandpass';f.frequency.value=freq*P;f.Q.value=q;g.gain.value=vol*V;s.connect(f).connect(g).connect(cur);s.start(t)};
+  const thump=(t,{f=160,dur=.05,vol=.35})=>{const o=ac.createOscillator(),g=ac.createGain();o.frequency.setValueAtTime(f*1.7*P,t);o.frequency.exponentialRampToValueAtTime(f*P,t+dur*.45);
+    g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(vol*V,t+.006);g.gain.exponentialRampToValueAtTime(.001,t+dur);o.connect(g).connect(cur);o.start(t);o.stop(t+dur+.02)};
+  const bell=(t,f,vol,dur)=>{const c=ac.createOscillator(),m=ac.createOscillator(),mg=ac.createGain(),g=ac.createGain();c.frequency.value=f*P;m.frequency.value=f*P*1.4;
+    mg.gain.setValueAtTime(f*P*1.2,t);mg.gain.exponentialRampToValueAtTime(1,t+dur);m.connect(mg).connect(c.frequency);
+    g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(vol*V,t+.01);g.gain.exponentialRampToValueAtTime(.001,t+dur);c.connect(g).connect(cur);c.start(t);m.start(t);c.stop(t+dur);m.stop(t+dur)};
+  const pluck=(t,f)=>{const o=ac.createOscillator(),o2=ac.createOscillator(),g=ac.createGain(),lp=ac.createBiquadFilter();o.type='triangle';o2.type='sine';
+    o.frequency.value=f*P;o2.frequency.value=f*P*2;lp.type='lowpass';lp.frequency.setValueAtTime(2400,t);lp.frequency.exponentialRampToValueAtTime(500,t+.6);
+    g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(.3*V,t+.006);g.gain.exponentialRampToValueAtTime(.001,t+.6);o.connect(lp);o2.connect(lp);lp.connect(g).connect(cur);
+    o.start(t);o2.start(t);o.stop(t+.62);o2.stop(t+.62)};
+  const play=fn=>{if(!on||!ctx()||ac.state!=='running')return;try{fn(ac.currentTime+.01)}catch(_){}};
+  // browsers only allow audio after a tap or key press, so wake the context on the first one
+  const wake=()=>{const a=ctx();if(a&&a.state!=='running')a.resume().catch(()=>{})};
+  addEventListener('pointerdown',wake,true);addEventListener('keydown',wake,true);
+  return {
+    get on(){return on},
+    toggle(){on=!on;try{localStorage.setItem('bdt-sound',on?'on':'off')}catch(_){}if(on)wake();return on},
+    // M5-1: a magnet snapping on, with one small bounce
+    land:()=>play(t=>{grp('land');noise(t,{freq:2800,q:4,dur:.016,vol:.55});thump(t,{f:180,dur:.04,vol:.25});noise(t+.045,{freq:3200,q:5,dur:.01,vol:.2})}),
+    // M: a soft plucked string, a little higher each step of a chain
+    clear:chain=>play(t=>{grp('clear');pluck(t,392*Math.min(1.6,1+.12*(chain-1)))}),
+    // A: sparkles while the 技 glows (0-0.7s), then a chord as the balls swell and vanish
+    tech:()=>play(t=>{grp('tech');for(let i=0;i<11;i++)tone(t+i*.06,{f:1800*(1+(i%4)*.18),dur:.08,vol:.035});
+      [523,659,784].forEach((f,i)=>tone(t+.7+i*.07,{f,type:'triangle',dur:.12,vol:.08}));[523,659,784,1047].forEach(f=>tone(t+.95,{f,type:'triangle',dur:.6,vol:.06}))}),
+    // N-3: three low bells over the red warning...
+    junkWarn:()=>play(t=>{grp('junkBell');[0,.3,.6].forEach(d=>bell(t+d,147,.45,.55))}),
+    // ...and a heavy thud as the junk lands
+    junkLand:()=>play(t=>{grp('junkLand');thump(t,{f:62,dur:.32,vol:.7});noise(t,{dur:.12,vol:.25,freq:260,q:1})})
+  };
+})();
 const valid=(dc,y)=>y>=0&&y<H&&dc>=0&&dc<=2*W-2+(y&1)&&((dc&1)===(y&1));
 const mkG=()=>Array.from({length:H},()=>Array(2*W).fill(null));
 let PID=1;
@@ -262,7 +311,7 @@ class Field{
   reset(){Object.assign(this,{g:mkG(),piece:null,next:randPiece(),state:'spawn',t:0,score:0,chain:0,maxChain:0,pending:0,queue:[],sent:[],fallT:0,lockT:0,flash:null,flashTech:null,flashDur:380,banner:null,rings:[],popups:[],soft:false,plan:null,cpuT:0,gDone:false})}
   spawn(){
     // incoming junk: the top band flashes red for a moment first (state 'gwarn'), then it drops
-    if(this.pending>0&&!this.gDone){this.state='gwarn';this.t=0;return}
+    if(this.pending>0&&!this.gDone){this.state='gwarn';this.t=0;if(this===game.p)sfx.junkWarn();return}
     this.gDone=false;
     this.piece=this.next;this.next=randPiece();
     if(!fits(this.g,this.piece)){this.state='dead';game.onDead(this);return}
@@ -271,14 +320,14 @@ class Field{
   }
   dropJunk(){
     for(const a of this.queue)dropFormation(this.g,a.sh,a.n);
-    this.queue=[];this.pending=0;physics(this.g);
+    this.queue=[];this.pending=0;physics(this.g);this.landSound=this===game.p;
   }
   animate(dt){
     const step=dt*0.012;let still=true;
     for(let y=0;y<H;y++)for(let dc=0;dc<2*W;dc++){const b=this.g[y][dc];if(!b)continue;
       // incoming junk: the whole block drops straight down at one steady speed, then settles
       if(b.ly!=null){if(b.vy<b.ly){b.vy=Math.min(b.ly,b.vy+dt*JUNK_FALL);still=false;continue}b.ly=null;
-        if(b.ring){this.rings.push({x:dc,y,t:0});b.ring=false}}
+        if(b.ring){this.rings.push({x:dc,y,t:0});b.ring=false;if(this.landSound){this.landSound=false;sfx.junkLand()}}}
       if(b.wg>0)b.wg=Math.max(0,b.wg-dt/600);
       const dx=(dc-b.vx)/2,dy=(y-b.vy)*R,d=Math.hypot(dx,dy);
       if(d<1e-3){b.vx=dc;b.vy=y;continue}
@@ -290,7 +339,7 @@ class Field{
     for(const [kx,ky] of [[0,0],[-2,0],[2,0],[0,2],[0,-2]]){const p={...r,dc:r.dc+kx,y:r.y+ky};if(fits(this.g,p)){this.piece=p;this.lockT=0;return}}}
   dropPos(){return settle(this.g,this.piece)}
   hardDrop(){if(this.state!=='play')return;const p=this.dropPos();this.score+=(p.y-this.piece.y);this.lock()}
-  lock(){const from=this.piece,p=settle(this.g,from);place(this.g,p,PID++,from);this.piece=null;physics(this.g,true);this.chain=0;this.sent=[];this.state='settle'}
+  lock(){const from=this.piece,p=settle(this.g,from);place(this.g,p,PID++,from);this.piece=null;physics(this.g,true);if(this===game.p)sfx.land();this.chain=0;this.sent=[];this.state='settle'}
   update(dt){
     const still=this.animate(dt);
     this.popups=this.popups.filter(p=>(p.t+=dt)<1100);
@@ -315,6 +364,7 @@ class Field{
           if(r){this.chain++;this.maxChain=Math.max(this.maxChain,this.chain);this.flash=r.list;this.t=0;this.state='flash';
             // a 技: its colour glows gold, swells and fades (longer than a plain clear) under a glowing name banner
             this.flashTech=r.tech.size?r.tech:null;this.flashDur=r.tech.size?1000:380;
+            if(this===game.p){if(r.tech.size)sfx.tech();else sfx.clear(this.chain)}
             if(r.tech.size&&game.mode==='online'&&this===game.p)net.techFx(r.tech,[...new Set(r.shapes.map(s=>s.name))].join('・')+'!');
             this.score+=r.removed*10*this.chain+(r.groups-1)*50;
             for(const sh of r.shapes)this.sent.push({sh,n:sh.atk});
@@ -812,6 +862,10 @@ function togglePause(){
   }else hideOverlay();
 }
 document.getElementById('pauseBtn').addEventListener('click',togglePause);
+// sound on/off (remembered on this device)
+const sndBtn=document.getElementById('sndBtn');
+const showSnd=()=>{sndBtn.setAttribute('aria-pressed',String(sfx.on));sndBtn.setAttribute('aria-label',sfx.on?'効果音をオフにする':'効果音をオンにする')};
+sndBtn.addEventListener('click',()=>{sfx.toggle();showSnd()});showSnd();
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&game.mode==='cpu'&&game.running&&!game.paused)togglePause()});
 
 layout();showStart();requestAnimationFrame(frame);
