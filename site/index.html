@@ -67,6 +67,16 @@ canvas{display:block;touch-action:none}
 .choices{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 .choice{border:2px solid var(--ink);background:transparent;color:var(--ink);border-radius:14px;padding:12px 4px;font-family:var(--body);font-weight:800;font-size:.95rem;cursor:pointer}
 .choice.main{background:var(--ink);color:#fff}
+/* phones: NEXT and the opponent's well move into a row above, so the player's well can use the full width */
+@media (max-width:600px){
+  /* the row shrinks on short phones so the player's well never ends up smaller than before */
+  #arena{--sideH:clamp(84px,18.5vh,150px);flex-direction:column;gap:8px}
+  #side{order:-1;width:auto;max-width:none;flex:none;height:var(--sideH);flex-direction:row;align-items:stretch;gap:8px}
+  #side .lbl{writing-mode:vertical-rl;font-size:.62rem;letter-spacing:.2em;align-self:center}
+  #pwrap{min-height:0}
+  #nwrap{flex:none;width:96px;align-items:center}
+  #cwrap{flex:none;width:calc(var(--sideH) * .73);height:var(--sideH)}
+}
 @media (prefers-reduced-motion:reduce){.btn{transition:none}}
 </style>
 
