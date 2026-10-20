@@ -223,13 +223,13 @@ function physics(g,mark){
 // only these exact 6-ball shapes (技) send junk; atk = balls sent, as in 6ボールパズル
 const LINE=d=>Array.from({length:6},(_,i)=>[d[0]*i,d[1]*i]);
 const SHAPES=[
-  {name:'ピラミッド',atk:24,cells:[[0,0],[-1,1],[1,1],[-2,2],[0,2],[2,2]]},
-  {name:'ピラミッド',atk:24,cells:[[-2,0],[0,0],[2,0],[-1,1],[1,1],[0,2]]},
-  {name:'ストレート',atk:19,cells:LINE([2,0])},
-  {name:'ストレート',atk:19,cells:LINE([1,1])},
-  {name:'ストレート',atk:19,cells:LINE([-1,1])},
+  {name:'三角形',atk:24,cells:[[0,0],[-1,1],[1,1],[-2,2],[0,2],[2,2]]},
+  {name:'逆三角形',atk:24,cells:[[-2,0],[0,0],[2,0],[-1,1],[1,1],[0,2]]},
+  {name:'一直線',atk:19,cells:LINE([2,0])},
+  {name:'一直線',atk:19,cells:LINE([1,1])},
+  {name:'一直線',atk:19,cells:LINE([-1,1])},
   // the ring alone: its centre may be empty, another colour, or the same colour
-  {name:'ヘキサゴン',atk:36,cells:NB.map(([x,y])=>[x,y])},
+  {name:'六角形',atk:36,cells:NB.map(([x,y])=>[x,y])},
 ].map(s=>({...s,cells:s.cells.sort((a,b)=>a[1]-b[1]||a[0]-b[0])}));
 // a same-color group counts as a 技 if the shape sits anywhere inside it, extra balls or not;
 // a group holding several shapes counts once, as the strongest
@@ -266,7 +266,7 @@ function findClear(g){
 }
 
 // junk arrives as a chain of the same 技 shape and falls as one block.
-// ピラミッド/ヘキサゴン: copies of the shape packed together; inside each copy no two touching balls share a colour
+// 三角形/六角形: copies of the shape packed together; inside each copy no two touching balls share a colour
 function formation(sh,n){
   const cells=[],used=new Set(),k=(x,y)=>y*64+x,[ax,ay]=sh.cells[0];let u=0;
   for(let y=0;cells.length<n;y++)for(let dc=0;dc<2*W&&cells.length<n;dc++){
@@ -281,7 +281,7 @@ function formation(sh,n){
   }
   return cells;
 }
-// ストレート (any direction): as in 6ボールパズル, a full row with a half-shifted row on top, colours
+// 一直線 (any direction): as in 6ボールパズル, a full row with a half-shifted row on top, colours
 // cycling 黄 紫 赤 青 緑 so each upper ball pairs with the one below-left; the rest of 19 sits on a third row
 const STRAIGHT_ORDER=[2,5,1,3,4];
 function straightBlock(n){
@@ -296,7 +296,7 @@ function straightBlock(n){
   return out;
 }
 function dropFormation(g,sh,n){
-  let cells=sh.name==='ストレート'?straightBlock(n):formation(sh,n);const top=-(Math.max(...cells.map(c=>c[1]))+2)&~1;
+  let cells=sh.name==='一直線'?straightBlock(n):formation(sh,n);const top=-(Math.max(...cells.map(c=>c[1]))+2)&~1;
   // slide the whole chain sideways to a random spot that still fits the well
   const room=2*W-2-Math.max(...cells.map(c=>c[0]-(c[1]&1))),sx=2*rnd(Math.floor(room/2)+1);
   cells=cells.map(([x,y,c])=>[x+sx,y,c]);
@@ -759,10 +759,10 @@ function showStart(){
   bindChoices();bindOnline();drawIcons();overlay.hidden=false;
 }
 const ICONS=[
-  {label:'ピラミッド<br>24個',cells:SHAPES[0].cells},
-  {label:'逆ピラミッド<br>24個',cells:SHAPES[1].cells},
-  {label:'ストレート(ななめも)<br>19個',cells:SHAPES[3].cells},
-  {label:'ヘキサゴン(真ん中は何色でも・空でもOK)<br>36個',cells:SHAPES[5].cells},
+  {label:'三角形<br>24個',cells:SHAPES[0].cells},
+  {label:'逆三角形<br>24個',cells:SHAPES[1].cells},
+  {label:'一直線(ななめも)<br>19個',cells:SHAPES[3].cells},
+  {label:'六角形(真ん中は何色でも・空でもOK)<br>36個',cells:SHAPES[5].cells},
 ];
 function drawIcons(){
   card.querySelectorAll('.shapes canvas').forEach(cv=>{
