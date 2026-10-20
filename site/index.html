@@ -125,15 +125,16 @@ const rnd=n=>Math.floor(Math.random()*n);
 // ---- Sound: every effect is synthesised here (no audio files). Soft voicing: pitched ~4 semitones
 // down, high end rolled off, gentle limiter; per-effect gains were measured so they sound equally loud ----
 const sfx=(()=>{
-  const P=0.79,V=0.72,GAIN={land:1.74,clear:0.84,tech:2.15,junkBell:0.816,junkLand:1.04};
+  const P=0.79,V=0.72,GAIN={land:1.74,clear:0.84,tech:2.15,junkBell:0.816,junkLand:1.04,win:1.9,lose:1.88};
   let ac=null,bus=null,cur=null,on=true;
   try{on=localStorage.getItem('bdt-sound')!=='off'}catch(_){}
   const ctx=()=>{if(!ac){const C=window.AudioContext||window.webkitAudioContext;if(!C)return null;ac=new C();
     const lp=ac.createBiquadFilter(),cmp=ac.createDynamicsCompressor(),g=ac.createGain();lp.type='lowpass';lp.Q.value=.5;lp.frequency.value=3200;
     cmp.threshold.value=-20;cmp.ratio.value=4;g.gain.value=.9;lp.connect(cmp).connect(g).connect(ac.destination);bus=lp}return ac};
   const grp=k=>{const g=ac.createGain();g.gain.value=GAIN[k];g.connect(bus);cur=g};
-  const tone=(t,{f,dur=.15,vol=.25,type='sine'})=>{const o=ac.createOscillator(),g=ac.createGain();o.type=type;o.frequency.setValueAtTime(f*P,t);
-    g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(vol*V,t+.012);g.gain.exponentialRampToValueAtTime(.001,t+dur*1.15);o.connect(g).connect(cur);o.start(t);o.stop(t+dur*1.2+.03)};
+  const tone=(t,{f,f2,dur=.15,vol=.25,type='sine',at=.012})=>{const o=ac.createOscillator(),g=ac.createGain();o.type=type;o.frequency.setValueAtTime(f*P,t);
+    if(f2)o.frequency.exponentialRampToValueAtTime(f2*P,t+dur);
+    g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(vol*V,t+at);g.gain.exponentialRampToValueAtTime(.001,t+dur*1.15);o.connect(g).connect(cur);o.start(t);o.stop(t+dur*1.2+.03)};
   const noise=(t,{dur=.1,vol=.2,freq=2000,q=1})=>{const n=Math.max(1,ac.sampleRate*dur|0),b=ac.createBuffer(1,n,ac.sampleRate),d=b.getChannelData(0);
     for(let i=0;i<n;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/n,3);const s=ac.createBufferSource(),f=ac.createBiquadFilter(),g=ac.createGain();
     s.buffer=b;f.type='bandpass';f.frequency.value=freq*P;f.Q.value=q;g.gain.value=vol*V;s.connect(f).connect(g).connect(cur);s.start(t)};
@@ -163,6 +164,11 @@ const sfx=(()=>{
       [523,659,784].forEach((f,i)=>tone(t+.7+i*.07,{f,type:'triangle',dur:.12,vol:.08}));[523,659,784,1047].forEach(f=>tone(t+.95,{f,type:'triangle',dur:.6,vol:.06}))}),
     // N-3: three low bells over the red warning...
     junkWarn:()=>play(t=>{grp('junkBell');[0,.3,.6].forEach(d=>bell(t+d,147,.45,.55))}),
+    // W2: sparkles rising, then a bright chord as the result card appears
+    win:()=>play(t=>{grp('win');for(let i=0;i<10;i++)tone(t+i*.05,{f:900*Math.pow(2,i/8),dur:.09,vol:.04});
+      [784,988,1175,1568].forEach(f=>tone(t+.55,{f,type:'triangle',dur:1,vol:.06}))}),
+    // L2: a soft two-note sigh sliding down an octave
+    lose:()=>play(t=>{grp('lose');tone(t,{f:440,f2:220,type:'triangle',dur:1,vol:.12,at:.04});tone(t,{f:554,f2:277,dur:1,vol:.06,at:.04})}),
     // ...and a heavy thud as the junk lands
     junkLand:()=>play(t=>{grp('junkLand');thump(t,{f:62,dur:.32,vol:.7});noise(t,{dur:.12,vol:.25,freq:260,q:1})})
   };
@@ -519,7 +525,7 @@ const net={room:null,r:null,role:null,code:'',phase:'idle',opp:null,me:null,read
       return;
     }
     if(this.phase!=='play')return;
-    if(!o){goHome(game.running?'相手が部屋を出たので、あなたの勝ちです':'相手が部屋を出ました');return}
+    if(!o){if(game.running)sfx.win();goHome(game.running?'相手が部屋を出たので、あなたの勝ちです':'相手が部屋を出ました');return}
     this.apply(o.presence);
   },
   again(){this.wantAgain=true;this.r.presence({rm:this.round}).catch(()=>{});this.tick()},
@@ -776,6 +782,7 @@ function drawIcons(){
   });
 }
 function showEnd(win,why){
+  if(win)sfx.win();else sfx.lose();
   const head=`<h2>${win?'<span>かち!</span>':'まけ…'}</h2>${why==='left'?'<p>相手が部屋を出ました</p>':''}
   <p>スコア <b>${game.p.score.toLocaleString()}</b> ・ 最大 <b>${game.p.maxChain}</b> れんさ</p>`;
   if(game.mode==='online'){
